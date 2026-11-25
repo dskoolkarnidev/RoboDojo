@@ -5,16 +5,23 @@ export type ExerciseType =
   | 'sequence-order'
   | 'architecture-tradeoff';
 
+export interface DeepDiveSection {
+  title: string;
+  body: string;
+  /** Connects a robotics concept to a familiar C++ / systems engineering concept */
+  cppBridge?: string;
+  code?: string;
+  language?: 'cpp' | 'cmake' | 'xml' | 'yaml' | 'bash';
+}
+
 export interface Exercise {
   id: string;
   type: ExerciseType;
   prompt: string;
   codeSnippet?: string;
-  language?: 'python' | 'cpp' | 'xml' | 'yaml' | 'bash';
+  language?: 'cpp' | 'cmake' | 'python' | 'xml' | 'yaml' | 'bash';
   options: string[];
-  /** Index of the correct option for MC / spot-the-bug / code-fill / tradeoff */
   correctIndex?: number;
-  /** Ordered indices or ordered strings for sequence-order */
   correctOrder?: string[];
   explanation: string;
   seniorTip?: string;
@@ -31,10 +38,10 @@ export interface LessonNode {
   estimatedMinutes: number;
   xpReward: number;
   keyTakeaways: string[];
+  deepDive: DeepDiveSection[];
   exercises: Exercise[];
-  /** Optional link to a specific simulator or code lab id */
   linkedLabId?: string;
-  linkedSimTab?: 'qos' | 'tf2' | 'pid';
+  linkedSimTab?: 'qos' | 'tf2' | 'pid' | 'diffdrive';
 }
 
 export interface Unit {
@@ -50,7 +57,6 @@ export interface Unit {
 export interface CodeTestCase {
   id: string;
   description: string;
-  /** Pattern or custom check key */
   checkType: 'includes-all' | 'includes-any' | 'regex' | 'not-includes';
   patterns: string[];
 }
@@ -62,8 +68,9 @@ export interface CodeLabTask {
   difficulty: 'Intermediate' | 'Advanced' | 'Principal';
   estimatedMinutes: number;
   xpReward: number;
-  language: 'python' | 'cpp' | 'xml' | 'yaml';
+  language: 'cpp' | 'python' | 'cmake' | 'xml' | 'yaml';
   brief: string;
+  roboticsContext: string;
   requirements: string[];
   starterCode: string;
   solutionCode: string;
@@ -95,15 +102,15 @@ export interface UserProgress {
   dailyGoalMinutes: number;
   hearts: number;
   maxHearts: number;
-  seniorMode: boolean; // Unlimited hearts for experienced devs who don't want lockout
+  seniorMode: boolean;
   soundEnabled: boolean;
   completedNodeIds: string[];
   masteredNodeIds: string[];
   completedCodeLabIds: string[];
   completedCliChallenges: string[];
-  missedExerciseIds: string[]; // Spaced repetition review queue
+  missedExerciseIds: string[];
   codeDrafts: Record<string, string>;
-  dailyQuestClaims: Record<string, string>; // questId -> YYYY-MM-DD
+  dailyQuestClaims: Record<string, string>;
   todayLessonsCompleted: number;
   todayXpEarned: number;
   todayCodeLabsCompleted: number;

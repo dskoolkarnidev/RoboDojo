@@ -19,6 +19,14 @@ interface CliChallenge {
 
 const CLI_CHALLENGES: CliChallenge[] = [
   {
+    id: 'cli_colcon',
+    title: 'Build C++ Workspace with Colcon',
+    prompt: 'Compile the ROS 2 C++ workspace using symlink-install so Python launch/YAML edits apply immediately.',
+    hint: 'colcon build --symlink-install',
+    xp: 25,
+    matchCmd: (c) => c.trim() === 'colcon build --symlink-install',
+  },
+  {
     id: 'cli_nodes',
     title: 'Discover Active Graph Nodes',
     prompt: 'List all currently running ROS 2 nodes on the simulated autonomous rover.',
@@ -85,6 +93,9 @@ export const CliDojo: React.FC<CliDojoProps> = ({ progress, onCompleteChallenge 
     if (cmd === 'help') {
       out = [
         'Available simulated commands:',
+        '  colcon build --symlink-install',
+        '  ros2 doctor',
+        '  ros2 component types',
         '  ros2 node list',
         '  ros2 node info /nav_controller',
         '  ros2 topic list [-t]',
@@ -99,6 +110,18 @@ export const CliDojo: React.FC<CliDojoProps> = ({ progress, onCompleteChallenge 
         '  ros2 run tf2_tools view_frames',
         '  clear',
       ].join('\n');
+    } else if (cmd === 'colcon build --symlink-install') {
+      out = [
+        'Starting >>> rover_control',
+        'Starting >>> lidar_watchdog',
+        'Finished <<< rover_control [1.84s]',
+        'Finished <<< lidar_watchdog [1.12s]',
+        'Summary: 2 packages finished [2.98s]',
+      ].join('\n');
+    } else if (cmd === 'ros2 doctor') {
+      out = 'All 5 checks passed (rmw_fastrtps_cpp, ROS_DOMAIN_ID=42, network interfaces OK).';
+    } else if (cmd === 'ros2 component types') {
+      out = 'camera_proc::Rectify\nperception::ObstacleDetector\nnav2_costmap_2d::Costmap2DROS';
     } else if (cmd === 'ros2 node list') {
       out = [
         '/ekf_filter_node',

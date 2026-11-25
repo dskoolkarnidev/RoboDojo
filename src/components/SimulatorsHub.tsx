@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Radio,
   Compass,
@@ -6,19 +6,117 @@ import {
   CheckCircle2,
   AlertTriangle,
   Sliders,
+  Navigation,
+  Play,
+  Pause,
+  RotateCcw,
 } from 'lucide-react';
 
+export type SimTab = 'diffdrive' | 'qos' | 'tf2' | 'pid';
+
 interface SimulatorsHubProps {
-  initialTab?: 'qos' | 'tf2' | 'pid';
+  initialTab?: SimTab;
 }
 
 type Reliability = 'RELIABLE' | 'BEST_EFFORT';
 type Durability = 'TRANSIENT_LOCAL' | 'VOLATILE';
 
-export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos' }) => {
-  const [tab, setTab] = useState<'qos' | 'tf2' | 'pid'>(initialTab);
+const OBSTACLES = [
+  { x: 110, y: 80, r: 28 },
+  { x: 290, y: 110, r: 34 },
+  { x: 210, y: 230, r: 30 },
+  { x: 380, y: 220, r: 26 },
+];
 
-  // --- QoS Simulator State ---
+export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'diffdrive' }) => {
+  const [tab, setTab] = useState<SimTab>(initialTab);
+
+  // --- 1. Diff-Drive Kinematics + LiDAR Raycaster + Odometry Drift ---
+  const [vL, setVL] = useState(0.5);
+  const [vR, setVR] = useState(0.62);
+  const [wheelSlip, setWheelSlip] = useState(0.08);
+  const [simRunning, setSimRunning] = useState(true);
+  const [pose, setPose] = useState({ x: 80, y: 160, th: 0, odomX: 80, odomY: 160, odomTh: 0 });
+  const [trail, setTrail] = useState<{ x: number; y: number; ox: number; oy: number }[]>([]);
+
+  const wheelbase = 0.45; // meters
+  const pxPerMeter = 80;
+
+  useEffect(() => {
+    if (tab !== 'diffdrive' || !simRunning) return;
+    const id = window.setInterval(() => {
+      const dt = 0.05;
+      const vTrue = 0.5 * (vR + vL);
+      const wTrue = (vR - vL) / wheelbase;
+
+      // Wheel slip corrupts measured left/right encoder velocities
+      const vRMeas = vR * (1 - wheelSlip);
+      const vMeas = 0.5 * (vRMeas + vL);
+      const wMeas = (vRMeas - vL) / wheelbase;
+
+      setPose((p) => {
+        let nx = p.x + vTrue * Math.cos(p.th) * dt * pxPerMeter;
+        let ny = p.y + vTrue * Math.sin(p.th) * dt * pxPerMeter;
+        let nth = p.th + wTrue * dt;
+
+        // Bounce softly off arena walls (460x300)
+        if (nx < 25 || nx > 435) {
+          nth = Math.PI - nth;
+          nx = Math.max(25, Math.min(435, nx));
+        }
+        if (ny < 25 || ny > 275) {
+          nth = -nth;
+          ny = Math.max(25, Math.min(275, ny));
+        }
+
+        const nox = p.odomX + vMeas * Math.cos(p.odomTh) * dt * pxPerMeter;
+        const noy = p.odomY + vMeas * Math.sin(p.odomTh) * dt * pxPerMeter;
+        const noth = p.odomTh + wMeas * dt;
+
+        setTrail((t) => [...t.slice(-90), { x: nx, y: ny, ox: nox, oy: noy }]);
+        return { x: nx, y: ny, th: nth, odomX: nox, odomY: noy, odomTh: noth };
+      });
+    }, 50);
+    return () => window.clearInterval(id);
+  }, [tab, simRunning, vL, vR, wheelSlip]);
+
+  // Cast 18 simulated 2D LiDAR rays around robot pose
+  const lidarRays = useMemo(() => {
+    const rays: { x2: number; y2: number; dist: number }[] = [];
+    const maxR = 140;
+    for (let i = 0; i < 18; i++) {
+      const angle = pose.th - Math.PI + (i / 18) * Math.PI * 2;
+      const dx = Math.cos(angle);
+      const dy = Math.sin(angle);
+      let hitDist = maxR;
+
+      for (let d = 12; d <= maxR; d += 4) {
+        const px = pose.x + dx * d;
+        const py = pose.y + dy * d;
+        if (px <= 4 || px >= 456 || py <= 4 || py >= 296) {
+          hitDist = d;
+          break;
+        }
+        const hitObs = OBSTACLES.some((o) => Math.hypot(px - o.x, py - o.y) <= o.r);
+        if (hitObs) {
+          hitDist = d;
+          break;
+        }
+      }
+      rays.push({
+        x2: pose.x + dx * hitDist,
+        y2: pose.y + dy * hitDist,
+        dist: hitDist / pxPerMeter,
+      });
+    }
+    return rays;
+  }, [pose]);
+
+  const linearV = 0.5 * (vR + vL);
+  const angularW = (vR - vL) / wheelbase;
+  const driftErr = Math.hypot(pose.x - pose.odomX, pose.y - pose.odomY) / pxPerMeter;
+
+  // --- 2. QoS Simulator State ---
   const [pubRel, setPubRel] = useState<Reliability>('BEST_EFFORT');
   const [pubDur, setPubDur] = useState<Durability>('VOLATILE');
   const [pubDepth, setPubDepth] = useState<number>(5);
@@ -38,13 +136,10 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
         'DURABILITY MISMATCH: Subscriber requests TRANSIENT_LOCAL (latched history), but Publisher only offers VOLATILE. DDS will NOT connect!'
       );
     }
-    return {
-      compatible: issues.length === 0,
-      issues,
-    };
+    return { compatible: issues.length === 0, issues };
   }, [pubRel, pubDur, subRel, subDur]);
 
-  // --- TF2 Kinematics State ---
+  // --- 3. TF2 Kinematics State ---
   const [baseX, setBaseX] = useState(1.2);
   const [baseY, setBaseY] = useState(0.8);
   const [baseYawDeg, setBaseYawDeg] = useState(25);
@@ -56,24 +151,17 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
     const th0 = deg2rad(baseYawDeg);
     const th1 = deg2rad(q1Deg);
     const th2 = deg2rad(q2Deg);
-
     const L1 = 0.7;
     const L2 = 0.55;
-
-    // Joint 1 in map frame
     const j1x = baseX;
     const j1y = baseY;
-    // Joint 2 in map frame
     const j2x = j1x + L1 * Math.cos(th0 + th1);
     const j2y = j1y + L1 * Math.sin(th0 + th1);
-    // End effector (camera_link) in map frame
     const totalAngle = th0 + th1 + th2;
     const camX = j2x + L2 * Math.cos(totalAngle);
     const camY = j2y + L2 * Math.sin(totalAngle);
-
     const cosA = Math.cos(totalAngle);
     const sinA = Math.sin(totalAngle);
-
     return {
       j1x,
       j1y,
@@ -81,7 +169,7 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
       j2y,
       camX,
       camY,
-      totalDeg: Math.round(((baseYawDeg + q1Deg + q2Deg) % 360 + 360) % 360),
+      totalDeg: Math.round((((baseYawDeg + q1Deg + q2Deg) % 360) + 360) % 360),
       matrix: [
         [cosA, -sinA, camX],
         [sinA, cosA, camY],
@@ -90,7 +178,7 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
     };
   }, [baseX, baseY, baseYawDeg, q1Deg, q2Deg]);
 
-  // --- PID Simulator State ---
+  // --- 4. PID Simulator State ---
   const [kp, setKp] = useState(1.8);
   const [ki, setKi] = useState(0.45);
   const [kd, setKd] = useState(0.35);
@@ -100,7 +188,7 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
 
   const pidSim = useMemo(() => {
     const dt = 0.02;
-    const steps = 250; // 5.0 seconds
+    const steps = 250;
     let y = 0;
     let v = 0;
     let integral = 0;
@@ -115,33 +203,23 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
       const deriv = (err - prevErr) / dt;
       prevErr = err;
 
-      // Actuator saturation +/- 8.0
       const rawU = kp * err + ki * integral + kd * deriv;
       const u = Math.max(-8, Math.min(8, rawU));
+      if (!antiWindup || rawU === u) integral += err * dt;
 
-      // Conditional integration anti-windup
-      if (!antiWindup || (rawU === u)) {
-        integral += err * dt;
-      }
-
-      // 2nd order plant: m=1.0, damping=0.8
       const extLoad = disturbance && t >= 2.0 && t <= 2.6 ? -3.0 : 0;
       const accel = u + extLoad - 0.8 * v - 0.2 * y;
       v += accel * dt;
       y += v * dt;
 
       if (y > maxY) maxY = y;
-      if (riseTime === null && y >= 0.9 * setpoint) {
-        riseTime = t;
-      }
+      if (riseTime === null && y >= 0.9 * setpoint) riseTime = t;
       points.push({ t, y });
     }
 
     const finalY = points[points.length - 1].y;
-    const overshootPct =
-      setpoint > 0 ? Math.max(0, ((maxY - setpoint) / setpoint) * 100) : 0;
+    const overshootPct = setpoint > 0 ? Math.max(0, ((maxY - setpoint) / setpoint) * 100) : 0;
     const ssError = Math.abs(setpoint - finalY);
-
     return { points, overshootPct, riseTime, ssError };
   }, [kp, ki, kd, setpoint, antiWindup, disturbance]);
 
@@ -151,15 +229,24 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
         <div>
           <h1 className="text-2xl font-extrabold text-white">Interactive Robotics Simulators</h1>
           <p className="text-sm text-slate-400">
-            Build deep systems intuition by breaking QoS rules, transforming frames, and tuning
-            closed-loop controllers.
+            Visual first-principles labs for C++ developers new to physical robotics.
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+        <div className="flex flex-wrap items-center gap-1.5 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+          <button
+            onClick={() => setTab('diffdrive')}
+            className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+              tab === 'diffdrive'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Navigation className="w-4 h-4" /> Diff-Drive &amp; LiDAR
+          </button>
           <button
             onClick={() => setTab('qos')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+            className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
               tab === 'qos'
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                 : 'text-slate-400 hover:text-white'
@@ -169,7 +256,7 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
           </button>
           <button
             onClick={() => setTab('tf2')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+            className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
               tab === 'tf2'
                 ? 'bg-violet-500/20 text-violet-300 border border-violet-500/40'
                 : 'text-slate-400 hover:text-white'
@@ -179,7 +266,7 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
           </button>
           <button
             onClick={() => setTab('pid')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+            className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
               tab === 'pid'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                 : 'text-slate-400 hover:text-white'
@@ -190,7 +277,199 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
         </div>
       </div>
 
-      {/* 1. QoS Compatibility Simulator */}
+      {/* 1. Diff-Drive + LiDAR + Odometry Drift Lab */}
+      {tab === 'diffdrive' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-4 rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-extrabold text-white">Wheel Velocities &amp; Slip</h2>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setSimRunning((r) => !r)}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 cursor-pointer"
+                >
+                  {simRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={() => {
+                    setPose({ x: 80, y: 160, th: 0, odomX: 80, odomY: 160, odomTh: 0 });
+                    setTrail([]);
+                  }}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-xs font-bold mb-1">
+                <span className="text-slate-400">Left Wheel v_L (m/s)</span>
+                <span className="font-mono text-cyan-300">{vL.toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min={-1}
+                max={1.2}
+                step={0.04}
+                value={vL}
+                onChange={(e) => setVL(Number(e.target.value))}
+                className="w-full accent-cyan-400"
+              />
+            </div>
+
+            <div>
+              <div className="flex justify-between text-xs font-bold mb-1">
+                <span className="text-slate-400">Right Wheel v_R (m/s)</span>
+                <span className="font-mono text-cyan-300">{vR.toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min={-1}
+                max={1.2}
+                step={0.04}
+                value={vR}
+                onChange={(e) => setVR(Number(e.target.value))}
+                className="w-full accent-cyan-400"
+              />
+            </div>
+
+            <div>
+              <div className="flex justify-between text-xs font-bold mb-1">
+                <span className="text-slate-400">Right-Wheel Slip Error (%)</span>
+                <span className="font-mono text-rose-300">{Math.round(wheelSlip * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={0.25}
+                step={0.01}
+                value={wheelSlip}
+                onChange={(e) => setWheelSlip(Number(e.target.value))}
+                className="w-full accent-rose-400"
+              />
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5 font-mono text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Twist linear.x (v):</span>
+                <span className="text-emerald-300">{linearV.toFixed(2)} m/s</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Twist angular.z (ω):</span>
+                <span className="text-emerald-300">{angularW.toFixed(2)} rad/s</span>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-slate-800">
+                <span className="text-slate-400">Odom Drift Error:</span>
+                <span className="text-amber-300">{driftErr.toFixed(2)} m</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Watch how tiny wheel slip makes the <span className="text-amber-300">dashed odometry ghost</span>{' '}
+              diverge from the <span className="text-emerald-300">true robot</span> — that&apos;s why robots need IMU + SLAM!
+            </p>
+          </div>
+
+          <div className="lg:col-span-8 rounded-2xl bg-slate-900 border border-slate-800 p-5">
+            <div className="flex items-center justify-between mb-3 text-xs">
+              <span className="font-extrabold text-white text-sm">
+                2D Arena · LaserScan + True Pose (Green) vs Odometry Estimate (Amber)
+              </span>
+              <span className="font-mono text-slate-400">18 LiDAR rays</span>
+            </div>
+
+            <svg
+              viewBox="0 0 460 300"
+              className="w-full h-80 rounded-xl bg-[#070b14] border border-slate-800"
+            >
+              {/* Obstacles */}
+              {OBSTACLES.map((o, idx) => (
+                <circle
+                  key={idx}
+                  cx={o.x}
+                  cy={o.y}
+                  r={o.r}
+                  fill="#1e293b"
+                  stroke="#475569"
+                  strokeWidth="2"
+                />
+              ))}
+
+              {/* True Trail */}
+              <polyline
+                fill="none"
+                stroke="#10b981"
+                strokeOpacity="0.4"
+                strokeWidth="2"
+                points={trail.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
+              />
+              {/* Odometry Drift Trail */}
+              <polyline
+                fill="none"
+                stroke="#f59e0b"
+                strokeDasharray="4 4"
+                strokeOpacity="0.7"
+                strokeWidth="2"
+                points={trail.map((p) => `${p.ox.toFixed(1)},${p.oy.toFixed(1)}`).join(' ')}
+              />
+
+              {/* LiDAR Rays */}
+              {lidarRays.map((r, i) => (
+                <g key={i}>
+                  <line
+                    x1={pose.x}
+                    y1={pose.y}
+                    x2={r.x2}
+                    y2={r.y2}
+                    stroke="#f43f5e"
+                    strokeOpacity="0.35"
+                    strokeWidth="1"
+                  />
+                  <circle cx={r.x2} cy={r.y2} r="2.2" fill="#fb7185" />
+                </g>
+              ))}
+
+              {/* Ghost Odometry Pose */}
+              <g
+                transform={`translate(${pose.odomX}, ${pose.odomY}) rotate(${
+                  (pose.odomTh * 180) / Math.PI
+                })`}
+              >
+                <rect
+                  x="-12"
+                  y="-10"
+                  width="24"
+                  height="20"
+                  rx="4"
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeDasharray="3 2"
+                  strokeWidth="1.5"
+                />
+              </g>
+
+              {/* True Robot Pose */}
+              <g transform={`translate(${pose.x}, ${pose.y}) rotate(${(pose.th * 180) / Math.PI})`}>
+                <rect
+                  x="-12"
+                  y="-10"
+                  width="24"
+                  height="20"
+                  rx="4"
+                  fill="#10b981"
+                  fillOpacity="0.35"
+                  stroke="#10b981"
+                  strokeWidth="2"
+                />
+                <line x1="0" y1="0" x2="15" y2="0" stroke="#38bdf8" strokeWidth="2.5" />
+              </g>
+            </svg>
+          </div>
+        </div>
+      )}
+
+      {/* 2. QoS Compatibility Simulator */}
       {tab === 'qos' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-5 rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-5">
@@ -344,7 +623,6 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
               </div>
             </div>
 
-            {/* RxO Diagnostic Result */}
             <div
               className={`rounded-2xl border p-6 space-y-3 ${
                 qosAnalysis.compatible
@@ -368,8 +646,6 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
               {qosAnalysis.compatible ? (
                 <p className="text-sm text-emerald-200/90">
                   Offered QoS ({pubRel}, {pubDur}) satisfies Requested QoS ({subRel}, {subDur}).
-                  Note that Depth does not affect compatibility — it only sizes each endpoint&apos;s
-                  local ring buffer.
                 </p>
               ) : (
                 <ul className="space-y-1.5">
@@ -385,7 +661,7 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
         </div>
       )}
 
-      {/* 2. TF2 & 2D Kinematics Visualizer */}
+      {/* 3. TF2 & 2D Kinematics Visualizer */}
       {tab === 'tf2' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-5 rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-4">
@@ -417,7 +693,6 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
               </div>
             ))}
 
-            {/* Homogeneous Matrix */}
             <div className="pt-3 border-t border-slate-800">
               <div className="text-xs font-bold text-slate-400 mb-2">
                 T_map_camera (SE(2) Homogeneous Matrix)
@@ -447,29 +722,20 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
               viewBox="-150 -200 500 350"
               className="w-full h-80 rounded-xl bg-[#070b14] border border-slate-800"
             >
-              {/* Grid */}
               <defs>
                 <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
-                  <path
-                    d="M 50 0 L 0 0 0 50"
-                    fill="none"
-                    stroke="#1e293b"
-                    strokeWidth="1"
-                  />
+                  <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#1e293b" strokeWidth="1" />
                 </pattern>
               </defs>
               <rect x="-150" y="-200" width="500" height="350" fill="url(#grid)" />
 
-              {/* Map Origin Axes */}
               <line x1="0" y1="0" x2="45" y2="0" stroke="#ef4444" strokeWidth="2.5" />
               <line x1="0" y1="0" x2="0" y2="-45" stroke="#22c55e" strokeWidth="2.5" />
               <text x="8" y="16" fill="#94a3b8" fontSize="11" fontFamily="monospace">
                 map (0,0)
               </text>
 
-              {/* Flip Y for standard robotics (+Y up in 2D view) */}
               <g transform="scale(1, -1)">
-                {/* Link 1 */}
                 <line
                   x1={tfData.j1x * 80}
                   y1={tfData.j1y * 80}
@@ -479,7 +745,6 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
                   strokeWidth="6"
                   strokeLinecap="round"
                 />
-                {/* Link 2 */}
                 <line
                   x1={tfData.j2x * 80}
                   y1={tfData.j2y * 80}
@@ -489,7 +754,6 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
                   strokeWidth="5"
                   strokeLinecap="round"
                 />
-                {/* Base Chassis */}
                 <g
                   transform={`translate(${tfData.j1x * 80}, ${tfData.j1y * 80}) rotate(${baseYawDeg})`}
                 >
@@ -507,9 +771,7 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
                   <line x1="0" y1="0" x2="24" y2="0" stroke="#ef4444" strokeWidth="2" />
                 </g>
 
-                {/* Joint 2 */}
                 <circle cx={tfData.j2x * 80} cy={tfData.j2y * 80} r="5" fill="#f8fafc" />
-                {/* Camera End-Effector */}
                 <circle cx={tfData.camX * 80} cy={tfData.camY * 80} r="6" fill="#f43f5e" />
               </g>
             </svg>
@@ -517,7 +779,7 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
         </div>
       )}
 
-      {/* 3. PID Controller Step-Response Lab */}
+      {/* 4. PID Controller Step-Response Lab */}
       {tab === 'pid' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-4 rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-4">
@@ -594,7 +856,6 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
               viewBox="0 0 500 220"
               className="w-full h-64 rounded-xl bg-[#070b14] border border-slate-800"
             >
-              {/* Setpoint dashed line */}
               <line
                 x1="0"
                 y1={200 - (setpoint / 2.5) * 180}
@@ -604,7 +865,6 @@ export const SimulatorsHub: React.FC<SimulatorsHubProps> = ({ initialTab = 'qos'
                 strokeDasharray="6 4"
                 strokeWidth="1.5"
               />
-              {/* Response Curve */}
               <polyline
                 fill="none"
                 stroke="#10b981"

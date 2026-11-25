@@ -129,6 +129,9 @@ export const CodeLab: React.FC<CodeLabProps> = ({
           </div>
 
           <h2 className="text-lg font-extrabold text-white">{lab.title}</h2>
+          <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/25 text-xs text-cyan-100 leading-relaxed">
+            <strong className="text-cyan-300">Robotics Why:</strong> {lab.roboticsContext}
+          </div>
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">{lab.brief}</p>
 
           <div className="space-y-1.5">
@@ -177,7 +180,7 @@ export const CodeLab: React.FC<CodeLabProps> = ({
             <div className="flex items-center gap-2 text-xs font-mono text-slate-300">
               <Code2 className="w-4 h-4 text-violet-400" />
               <span>
-                {lab.id}.{lab.language === 'python' ? 'py' : lab.language}
+                {lab.id}.{lab.language === 'python' ? 'py' : lab.language === 'cpp' ? 'cpp' : lab.language}
               </span>
             </div>
 

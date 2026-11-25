@@ -3,7 +3,7 @@ import { Navbar, type AppTab } from './components/Navbar';
 import { LearningPath } from './components/LearningPath';
 import { LessonPlayer } from './components/LessonPlayer';
 import { DailySession } from './components/DailySession';
-import { SimulatorsHub } from './components/SimulatorsHub';
+import { SimulatorsHub, type SimTab } from './components/SimulatorsHub';
 import { CodeLab } from './components/CodeLab';
 import { CliDojo } from './components/CliDojo';
 import { ProfileView } from './components/ProfileView';
@@ -15,7 +15,7 @@ export function App() {
   const [progress, setProgress] = useState<UserProgress>(() => loadProgress());
   const [activeTab, setActiveTab] = useState<AppTab>('path');
   const [activeLesson, setActiveLesson] = useState<LessonNode | null>(null);
-  const [simTab, setSimTab] = useState<'qos' | 'tf2' | 'pid'>('qos');
+  const [simTab, setSimTab] = useState<SimTab>('diffdrive');
   const [selectedLabId, setSelectedLabId] = useState<string | undefined>(undefined);
 
   useEffect(() => {

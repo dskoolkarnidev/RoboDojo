@@ -20,7 +20,7 @@ import { DAILY_QUESTS } from '../utils/storage';
 interface LearningPathProps {
   progress: UserProgress;
   onStartNode: (node: LessonNode) => void;
-  onOpenSim: (tab: 'qos' | 'tf2' | 'pid') => void;
+  onOpenSim: (tab: 'diffdrive' | 'qos' | 'tf2' | 'pid') => void;
   onOpenCodeLab: (labId: string) => void;
   onOpenDaily: () => void;
   onClaimQuest: (questId: string, bonus: number) => void;
@@ -138,10 +138,11 @@ export const LearningPath: React.FC<LearningPathProps> = ({
                 DAILY 30-MIN ROBOTICS WORKOUT
               </div>
               <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-                Steady, senior-paced ROS 2 mastery
+                First-principles Robotics &amp; ROS 2 (C++ / Python)
               </h1>
               <p className="text-sm text-slate-400 mt-1 max-w-xl">
-                10m architecture &amp; edge cases + 10m live simulator/CLI + 10m hands-on node coding.
+                Built for C++ &amp; Python developers new to robotics: 10m physics &amp; systems
+                deep-dive + 10m live simulator/CLI + 10m rclcpp/launch coding.
               </p>
             </div>
             <button

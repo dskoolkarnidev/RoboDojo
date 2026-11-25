@@ -11,6 +11,7 @@ import {
 import type { UserProgress } from '../types/curriculum';
 import { BADGES, getRankInfo, getUnlockedBadgeIds } from '../utils/storage';
 import { getAllNodes } from '../data/curriculum';
+import { CODE_LABS } from '../data/codeLabs';
 
 interface ProfileViewProps {
   progress: UserProgress;
@@ -111,7 +112,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
             <div className="text-xs text-slate-400">Code Labs Passed</div>
             <div className="text-2xl font-extrabold text-white mt-1">
-              {progress.completedCodeLabIds.length}/6
+              {progress.completedCodeLabIds.length}/{CODE_LABS.length}
             </div>
           </div>
         </div>

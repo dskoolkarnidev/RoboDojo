@@ -4,266 +4,386 @@ export const CURRICULUM_UNITS: Unit[] = [
   {
     id: 'unit_1',
     number: 1,
-    title: 'ROS 2 Architecture & DDS',
+    title: 'Robotics First Principles & ROS 2 C++ Core',
     description:
-      'Master the computation graph, DDS discovery, QoS compatibility, and multi-threaded executors without deadlocks.',
+      'Bridge from C++ systems engineering to physical robotics: control loops, ament_cmake/colcon, DDS QoS, and lock-free rclcpp executors.',
     color: 'emerald',
-    badgeName: 'DDS & Executor Master',
+    badgeName: 'rclcpp Systems Architect',
     nodes: [
       {
         id: 'u1_n1',
         unitId: 'unit_1',
-        title: 'Nodes, Graph & DDS Discovery',
-        subtitle: 'Why ROS 2 dropped roscore and how RTPS discovery works',
+        title: 'Sense → Plan → Act & Multi-Rate Loops',
+        subtitle: 'What makes physical robotics fundamentally different from backend C++',
         kind: 'lesson',
-        estimatedMinutes: 8,
-        xpReward: 40,
+        estimatedMinutes: 10,
+        xpReward: 45,
+        linkedSimTab: 'diffdrive',
         keyTakeaways: [
-          'ROS 2 uses DDS (Data Distribution Service) for decentralized peer-to-peer discovery — no single point of failure like ROS 1 roscore.',
-          'ROS_DOMAIN_ID partitions DDS multicast UDP ports (default 0); isolating robots on the same LAN requires distinct Domain IDs.',
-          'Intra-process communication passes std::unique_ptr zero-copy within the same OS process via Composable Nodes.',
+          'Every robot runs a continuous Sense → Plan → Act feedback loop against noisy, non-deterministic physical reality.',
+          'Subsystems run at vastly different frequencies: Motor torque PID (1000 Hz) > State Estimation/EKF (100 Hz) > Local Obstacle Avoidance (20 Hz) > Global Path Planning (1 Hz).',
+          'ROS 2 is NOT an OS kernel — it is a distributed C++/Python middleware & robotics standard library layered over DDS.',
+        ],
+        deepDive: [
+          {
+            title: '1. From Request/Response Software to Closed-Loop Physics',
+            body: 'In backend C++ services, an RPC arrives, mutates state, and returns. In robotics, the world changes continuously even when your code is idle. Wheels slip on dust, battery voltage sags, and LiDAR beams miss dark glass. Therefore, robots rely on closed-loop feedback: sensors continuously measure actual state, planners compute desired state, and controllers output actuator commands to shrink the error.',
+            cppBridge:
+              'Think of a robot like a game engine + real-time telemetry pipeline: physics never pauses for a slow mutex or garbage collection pause.',
+          },
+          {
+            title: '2. Multi-Rate Hierarchical Control Loops',
+            body: 'You never run A* path planning at 1 kHz, and you never run wheel velocity PID at 1 Hz. Robotics architectures decouple rates into layers: Inner Hardware Loop (500–1000 Hz, deterministic C++), State Estimation & Odometry (50–200 Hz), Local Trajectory Control (10–30 Hz), and Global Mission Planning (0.5–2 Hz or event-driven).',
+            code: `// Typical multi-rate C++ robotics stack timing budget:
+// [1000 Hz | 1.0 ms budget] -> ros2_control Motor PID (PREEMPT_RT, zero heap alloc)
+// [ 100 Hz | 10 ms budget]  -> EKF State Estimator (IMU + Wheel Encoders)
+// [  20 Hz | 50 ms budget]  -> Nav2 MPPI Local Controller + Costmap
+// [   1 Hz | 1000 ms]       -> Nav2 Smac Global A* Planner + Behavior Tree`,
+            language: 'cpp',
+          },
+          {
+            title: '3. Why ROS 2 Exists (and Why It Replaced ROS 1)',
+            body: 'ROS 2 provides three pillars: (1) Standardized message contracts (geometry_msgs/Twist, sensor_msgs/LaserScan, nav_msgs/Odometry) so drivers, planners, and visualizers interoperate; (2) Decentralized DDS transport (no single point of failure like ROS 1 roscore); and (3) Production tooling (colcon, RViz2, Gazebo, TF2, Nav2, MoveIt 2).',
+          },
         ],
         exercises: [
           {
             id: 'u1_n1_e1',
             type: 'multiple-choice',
             prompt:
-              'Two robots on the same factory Wi-Fi both publish to `/cmd_vel` and `/scan`. What is the cleanest, zero-code ROS 2 mechanism to prevent their topics from colliding?',
+              'In an autonomous mobile robot, why is motor current/velocity PID run at ~1000 Hz while global path planning runs at ~1 Hz?',
             options: [
-              'Run a separate roscore on different ports',
-              'Assign each robot a unique ROS_DOMAIN_ID environment variable',
-              'Use Reliable QoS on Robot A and Best-Effort on Robot B',
-              'Disable DDS completely and use TCPROS',
+              'Global planners are always written in Python, which cannot run faster than 1 Hz',
+              'Actuator dynamics change in milliseconds and require tight feedback stability, whereas global route topology changes slowly and is computationally expensive',
+              'DDS limits topics to 1 Hz unless they use Twist messages',
+              'Wheel encoders only update once per second',
             ],
             correctIndex: 1,
             explanation:
-              'DDS computes UDP discovery ports from ROS_DOMAIN_ID (0–101). Setting distinct ROS_DOMAIN_ID values isolates each robot’s DDS domain at the transport layer.',
+              'Physical stability depends on sampling much faster than the mechanical time constant. Motor torque/velocity needs sub-millisecond to few-millisecond loops, while searching a 2D map graph takes tens of milliseconds and only needs to re-plan periodically.',
             seniorTip:
-              'For large fleets (>50 nodes/robot), pair ROS_DOMAIN_ID with a DDS Discovery Server (e.g., FastDDS Discovery Server) to avoid UDP multicast storms on Wi-Fi.',
+              'Never put heavy heap allocations, blocking I/O, or path searches on the same thread/timer as your low-level actuator control loop.',
           },
           {
             id: 'u1_n1_e2',
             type: 'architecture-tradeoff',
             prompt:
-              'Your perception pipeline passes 12 MB 4K RGB-D PointCloud2 frames at 30 Hz between 3 C++ nodes on an NVIDIA Orin. Serialization is saturating CPU. What should you do?',
+              'Your differential-drive robot commands a wheel velocity of 0.5 m/s open-loop (without encoder feedback). On carpet vs tile, what happens?',
             options: [
-              'Rewrite all nodes in Python rclpy for GIL parallelism',
-              'Load them into a single ComponentContainer with use_intra_process_comms=True',
-              'Switch QoS Durability to Transient Local',
-              'Increase topic queue depth to 100',
+              'It drives at exactly 0.5 m/s on both surfaces because voltage is constant',
+              'Higher rolling resistance on carpet slows the robot down and causes heading drift because open-loop control cannot observe or correct physical error',
+              'Open-loop control automatically compensates using DDS QoS',
+              'The robot moves faster on carpet due to extra traction',
             ],
             correctIndex: 1,
             explanation:
-              'ROS 2 Composable Nodes inside a ComponentContainer with intra-process communication pass `std::unique_ptr<MsgT>` directly in memory, bypassing DDS serialization and sockets entirely.',
-            seniorTip:
-              'Note: In rclcpp, zero-copy intra-process requires publishing via `std::unique_ptr` (not const ref) so ownership transfers cleanly.',
+              'Open-loop control blindly applies voltage/PWM without measuring output. Closed-loop feedback (reading wheel encoders -> PID) measures actual wheel speed and increases torque on carpet to maintain 0.5 m/s.',
           },
           {
             id: 'u1_n1_e3',
-            type: 'code-fill',
+            type: 'sequence-order',
             prompt:
-              'Complete the Python launch snippet to load a C++ ComposableNode with zero-copy intra-process comms enabled:',
-            language: 'python',
-            codeSnippet: `ComposableNode(
-    package='camera_proc',
-    plugin='camera_proc::RectifyNode',
-    name='rectify',
-    extra_arguments=[{'____': True}]
-)`,
+              'Order the Sense → Plan → Act pipeline for one autonomous navigation cycle (top = first):',
             options: [
-              'use_intra_process_comms',
-              'zero_copy_transport',
-              'use_sim_time',
-              'enable_dds_shm',
+              'Sensors (LiDAR, IMU, Encoders) publish raw physical measurements',
+              'State Estimator (EKF) & SLAM fuse measurements into robot pose',
+              'Planner & Controller compute obstacle-free velocity Twist (v, ω)',
+              'ros2_control converts Twist into left/right wheel motor commands',
             ],
-            correctIndex: 0,
+            correctOrder: [
+              'Sensors (LiDAR, IMU, Encoders) publish raw physical measurements',
+              'State Estimator (EKF) & SLAM fuse measurements into robot pose',
+              'Planner & Controller compute obstacle-free velocity Twist (v, ω)',
+              'ros2_control converts Twist into left/right wheel motor commands',
+            ],
             explanation:
-              '`use_intra_process_comms: True` in `extra_arguments` instructs the ComponentManager to allocate the intra-process buffer ring.',
+              'Every autonomous robot flows from raw physical sensing -> state estimation -> planning/control -> hardware actuation.',
           },
         ],
       },
       {
         id: 'u1_n2',
         unitId: 'unit_1',
-        title: 'QoS Compatibility & Profiles',
-        subtitle: 'Reliability, Durability, Liveliness & silent topic drops',
-        kind: 'lab',
-        estimatedMinutes: 10,
-        xpReward: 50,
-        linkedSimTab: 'qos',
+        title: 'ament_cmake, colcon & Your First rclcpp Node',
+        subtitle: 'ROS 2 C++ workspace anatomy, smart pointers, and wall timers',
+        kind: 'assignment',
+        estimatedMinutes: 12,
+        xpReward: 65,
+        linkedLabId: 'lab_cpp_pub_sub',
         keyTakeaways: [
-          'RxO (Request vs Offered): A subscriber cannot demand a stronger QoS guarantee than the publisher offers.',
-          'Reliable Subscriber + Best-Effort Publisher = INCOMPATIBLE (zero messages delivered, only a QoS event warning).',
-          'Transient Local Durability caches the last N messages for late-joining subscribers (essential for /map and /robot_description).',
+          'A ROS 2 workspace uses `colcon build --symlink-install` to compile packages defined by `package.xml` (dependencies/metadata) and `CMakeLists.txt` (`ament_cmake`).',
+          'Modern `rclcpp` nodes inherit from `rclcpp::Node` and are always instantiated as `std::shared_ptr<MyNode>` via `std::make_shared`.',
+          'Use C++14/17 `std::chrono_literals` (`50ms`, `500ms`) with `create_wall_timer` and `RCLCPP_INFO` / `RCLCPP_WARN_THROTTLE` for logging.',
+        ],
+        deepDive: [
+          {
+            title: '1. ROS 2 C++ Package Anatomy (The Construct Pattern)',
+            body: 'Unlike a standalone CMake project, every ROS 2 C++ package contains two mandatory metadata/build files: `package.xml` (declares `buildtool_depend` on `ament_cmake` and `depend` tags like `rclcpp`, `geometry_msgs` so `rosdep` can install apt dependencies) and `CMakeLists.txt` (uses `find_package()`, `ament_target_dependencies()`, and `install(TARGETS ... DESTINATION lib/${PROJECT_NAME})` so `ros2 run` can locate the binary).',
+            code: `cmake_minimum_required(VERSION 3.16)
+project(rover_control)
+
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(geometry_msgs REQUIRED)
+
+add_executable(velocity_node src/velocity_node.cpp)
+ament_target_dependencies(velocity_node rclcpp geometry_msgs)
+
+install(TARGETS velocity_node DESTINATION lib/\${PROJECT_NAME})
+ament_package()`,
+            language: 'cmake',
+          },
+          {
+            title: '2. Anatomy of an Idiomatic Modern C++ rclcpp::Node',
+            body: 'In `rclcpp`, your class subclasses `rclcpp::Node`. Always pass `rclcpp::Node` as a `std::shared_ptr` into `rclcpp::spin(node)` — internally `rclcpp` calls `shared_from_this()` when registering timers, publishers, and TF listeners, which throws `std::bad_weak_ptr` if constructed on the stack!',
+            cppBridge:
+              'Never instantiate an `rclcpp::Node` subclass as a stack value (`MyNode node;`); always use `std::make_shared<MyNode>()` just like `std::enable_shared_from_this` objects in Boost.Asio.',
+            code: `#include <chrono>
+#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+
+using namespace std::chrono_literals;
+
+class SafetyStopNode : public rclcpp::Node {
+public:
+  SafetyStopNode() : Node("safety_stop_node") {
+    pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+    timer_ = this->create_wall_timer(
+      50ms, std::bind(&SafetyStopNode::on_timer, this));
+  }
+private:
+  void on_timer() {
+    geometry_msgs::msg::Twist msg;
+    msg.linear.x = 0.0;
+    pub_->publish(msg);
+  }
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr pub_;
+  rclcpp::TimerBase::SharedPtr timer_;
+};`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u1_n2_e1',
             type: 'spot-the-bug',
             prompt:
-              'You launch `rviz2` after `/map_server` has already published `/map` once. RViz shows "No map received". What is the most likely QoS bug?',
-            codeSnippet: `# map_publisher.py
-qos = QoSProfile(
-    reliability=ReliabilityPolicy.RELIABLE,
-    durability=DurabilityPolicy.VOLATILE,
-    depth=1
-)
-self.pub = self.create_publisher(OccupancyGrid, '/map', qos)`,
-            language: 'python',
+              'Why does `colcon build` succeed, yet `ros2 run my_pkg my_node` fails with "No executable found"?',
+            codeSnippet: `add_executable(my_node src/my_node.cpp)
+ament_target_dependencies(my_node rclcpp)
+ament_package()`,
+            language: 'cmake',
             options: [
-              'Depth=1 is too small for OccupancyGrid',
-              'Durability is VOLATILE instead of TRANSIENT_LOCAL, so late joiners miss the latched map',
-              'Reliability must be BEST_EFFORT for /map',
-              'Topic name /map cannot have a leading slash',
+              'rclcpp cannot be linked in CMakeLists.txt',
+              'Missing `install(TARGETS my_node DESTINATION lib/${PROJECT_NAME})` before `ament_package()`',
+              'Missing `ros2_run_enable()` macro',
+              'The file must be named main.cpp',
             ],
             correctIndex: 1,
             explanation:
-              'In ROS 2, `TRANSIENT_LOCAL` durability replaces ROS 1 `latch=True`. With `VOLATILE`, any subscriber connecting after the single publish receives nothing.',
-            seniorTip:
-              'Remember: BOTH publisher and subscriber must use `TRANSIENT_LOCAL` (or sub uses `VOLATILE`, which is weaker) to match!',
+              '`ros2 run` looks inside `install/<pkg>/lib/<pkg>/`. Without `install(TARGETS ... DESTINATION lib/${PROJECT_NAME})`, the binary stays in `build/` and is never installed.',
           },
           {
             id: 'u1_n2_e2',
-            type: 'multiple-choice',
+            type: 'spot-the-bug',
             prompt:
-              'A LiDAR driver publishes `/scan` with `BEST_EFFORT` reliability. Which subscriber QoS will successfully receive messages?',
+              'What happens at runtime if you construct a `rclcpp::Node` subclass on the stack and pass `&node` or try `shared_from_this()`?',
+            codeSnippet: `int main(int argc, char** argv) {
+  rclcpp::init(argc, argv);
+  MyRobotNode node; // <-- stack allocated!
+  // ...
+}`,
+            language: 'cpp',
             options: [
-              'RELIABLE + VOLATILE',
-              'BEST_EFFORT + TRANSIENT_LOCAL',
-              'BEST_EFFORT + VOLATILE',
-              'RELIABLE + TRANSIENT_LOCAL',
-            ],
-            correctIndex: 2,
-            explanation:
-              'By DDS RxO rules, a Best-Effort publisher can only serve Best-Effort subscribers, and a Volatile publisher can only serve Volatile subscribers.',
-          },
-          {
-            id: 'u1_n2_e3',
-            type: 'multiple-choice',
-            prompt:
-              'Which QoS policy lets a safety supervisor detect within 200ms that a motor controller node crashed or hung?',
-            options: [
-              'HistoryPolicy.KEEP_ALL',
-              'Deadline / Liveliness QoS with event callbacks',
-              'DurabilityPolicy.TRANSIENT_LOCAL',
-              'Depth = 1',
+              'It compiles and runs faster due to stack allocation',
+              'Passing `node.get_node_base_interface()` or calling `shared_from_this()` throws `std::bad_weak_ptr` because `rclcpp::Node` inherits `std::enable_shared_from_this`',
+              'DDS rejects stack memory addresses',
+              'CMake refuses to link stack-allocated nodes',
             ],
             correctIndex: 1,
             explanation:
-              'Deadline QoS fires an `on_requested_deadline_missed` callback if a message isn’t received within the period; Liveliness detects dead participants.',
+              '`rclcpp::Node` inherits from `std::enable_shared_from_this<Node>`. Always allocate via `auto node = std::make_shared<MyRobotNode>();` and pass it to `rclcpp::spin(node);`.',
+          },
+          {
+            id: 'u1_n2_e3',
+            type: 'code-fill',
+            prompt:
+              'Complete the `CMakeLists.txt` line to install your C++ node binary so `ros2 run` can launch it:',
+            language: 'cmake',
+            codeSnippet: `install(TARGETS lidar_filter
+  DESTINATION ____/\${PROJECT_NAME}
+)`,
+            options: ['lib', 'bin', 'share', 'include'],
+            correctIndex: 0,
+            explanation:
+              'ROS 2 convention places package executables in `lib/${PROJECT_NAME}` (not `bin/`) to keep package binaries namespaced by package name.',
           },
         ],
       },
       {
         id: 'u1_n3',
         unitId: 'unit_1',
-        title: 'Executors & Callback Groups',
-        subtitle: 'Avoiding single-threaded deadlocks in async robotics',
-        kind: 'assignment',
-        estimatedMinutes: 12,
-        xpReward: 65,
-        linkedLabId: 'lab_reentrant_executor',
+        title: 'DDS Discovery & QoS Compatibility',
+        subtitle: 'Under-the-hood RTPS transport & why topics silently drop',
+        kind: 'lab',
+        estimatedMinutes: 10,
+        xpReward: 55,
+        linkedSimTab: 'qos',
         keyTakeaways: [
-          'SingleThreadedExecutor runs all callbacks sequentially on 1 thread — blocking inside a callback stalls timers, subscriptions, and service responses.',
-          'All callbacks in a node default to a single MutuallyExclusiveCallbackGroup.',
-          'To run callbacks concurrently, combine a MultiThreadedExecutor with ReentrantCallbackGroup or separate MutuallyExclusiveCallbackGroups.',
+          'ROS 2 abstracts vendor DDS implementations (FastDDS, CycloneDDS) behind `rmw` (ROS Middleware Interface).',
+          'RxO (Request vs Offered): A subscriber cannot require stronger QoS guarantees than the publisher offers.',
+          'Use `rclcpp::SensorDataQoS()` (Best-Effort, Volatile) for high-rate loss-tolerant sensors (LiDAR/Camera), and `Reliable + TransientLocal` for latched state like `/map` and `/robot_description`.',
+        ],
+        deepDive: [
+          {
+            title: '1. DDS: Decentralized Pub/Sub Middleware',
+            body: 'DDS (Data Distribution Service) uses RTPS over UDP multicast (or shared memory on localhost) for peer-to-peer discovery. Every process with the same `ROS_DOMAIN_ID` discovers peers automatically. Unlike TCP sockets, DDS separates *transport reliability* from *discovery* via Quality of Service (QoS) policies.',
+            cppBridge:
+              'Think of QoS policies as a compile-time/runtime contract handshake between `DataWriter` (publisher) and `DataReader` (subscriber) — if the contract is incompatible, zero bytes are delivered.',
+          },
+          {
+            title: '2. The #1 ROS 2 Newcomer Trap: SensorDataQoS vs Default QoS',
+            body: 'In `rclcpp`, passing an integer like `create_subscription<LaserScan>("/scan", 10, cb)` defaults to `RELIABLE` + `VOLATILE`. However, most real hardware LiDAR and camera drivers publish with `rclcpp::SensorDataQoS()` (`BEST_EFFORT` + `VOLATILE`) to avoid retransmission head-of-line blocking over Wi-Fi. Result: `RELIABLE` sub + `BEST_EFFORT` pub = silent connection failure!',
+            code: `// Correct C++ subscription for high-frequency LiDAR / IMU:
+scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+  "/scan",
+  rclcpp::SensorDataQoS(),
+  [this](sensor_msgs::msg::LaserScan::ConstSharedPtr msg) {
+    process_scan(*msg);
+  });
+
+// Correct C++ latched publisher for static map or robot URDF:
+auto map_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", map_qos);`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u1_n3_e1',
             type: 'spot-the-bug',
             prompt:
-              'Why does this node hang forever on `rclpy.spin_until_future_complete` or `future.result()` inside `timer_cb`?',
-            codeSnippet: `class PlannerNode(Node):
-    def __init__(self):
-        super().__init__('planner')
-        self.cli = self.create_client(GetPlan, '/compute_plan')
-        self.timer = self.create_timer(1.0, self.timer_cb)
-
-    def timer_cb(self):
-        fut = self.cli.call_async(GetPlan.Request())
-        while not fut.done():
-            time.sleep(0.01) # <-- hangs!`,
-            language: 'python',
+              'Your C++ node subscribes to `/scan` using queue depth `10`, while the LiDAR driver uses `rclcpp::SensorDataQoS()`. `ros2 topic hz /scan` works, but your callback NEVER fires. Why?',
+            codeSnippet: `sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+  "/scan", 10, std::bind(&ObstacleNode::on_scan, this, std::placeholders::_1));`,
+            language: 'cpp',
             options: [
-              'GetPlan.Request() is missing a header',
-              'Blocking inside timer_cb starves the SingleThreadedExecutor, so the service response callback can never run',
-              'time.sleep(0.01) is too short for DDS',
-              'create_client must be called after create_timer',
+              'std::bind cannot be used with LaserScan',
+              'Depth `10` implies RELIABLE QoS, which is incompatible with the driver’s BEST_EFFORT SensorDataQoS',
+              'LaserScan messages exceed UDP MTU so DDS drops them',
+              'The topic name must not start with a slash',
             ],
             correctIndex: 1,
             explanation:
-              'The executor thread is trapped inside `timer_cb` spinning on `fut.done()`. Because the service client response is also scheduled on that same executor, `fut` will never complete.',
+              'Passing integer `10` constructs `rclcpp::QoS(10)` with `RELIABLE` reliability. A `RELIABLE` subscriber refuses to match a `BEST_EFFORT` publisher. Pass `rclcpp::SensorDataQoS()` instead.',
             seniorTip:
-              'Prefer `fut.add_done_callback(self.on_plan_ready)` for non-blocking async, or use `ReentrantCallbackGroup` + `MultiThreadedExecutor`.',
+              'Run `ros2 topic info /scan --verbose` whenever a callback silently fails to fire — it prints every endpoint’s Reliability and Durability side by side.',
           },
           {
             id: 'u1_n3_e2',
-            type: 'architecture-tradeoff',
+            type: 'multiple-choice',
             prompt:
-              'You want Timer A (100 Hz control loop) and Timer B (1 Hz heavy path planning) to run in parallel, while preventing Timer B from ever overlapping with itself. Best setup?',
+              'Two robots on the same factory Wi-Fi both publish `/cmd_vel` and `/odom`. How do you isolate their DDS graphs with zero C++ code changes?',
             options: [
-              'Put both in one ReentrantCallbackGroup with SingleThreadedExecutor',
-              'Put Timer A in MutuallyExclusiveCallbackGroup #1, Timer B in MutuallyExclusiveCallbackGroup #2, and use MultiThreadedExecutor',
-              'Use one MutuallyExclusiveCallbackGroup for both with MultiThreadedExecutor',
-              'Set QoS depth=1 on both timers',
+              'Export a distinct `ROS_DOMAIN_ID` (e.g., 10 vs 11) in each robot’s environment',
+              'Use `BEST_EFFORT` QoS on both robots',
+              'Disable `rclcpp::spin()`',
+              'Change `CMakeLists.txt` project names',
             ],
-            correctIndex: 1,
+            correctIndex: 0,
             explanation:
-              'Different MutuallyExclusiveCallbackGroups can execute concurrently across threads in a MultiThreadedExecutor, while each group guarantees its own callbacks never re-enter themselves.',
+              '`ROS_DOMAIN_ID` shifts the DDS RTPS UDP discovery ports, completely isolating each robot’s computation graph on the same LAN.',
+          },
+          {
+            id: 'u1_n3_e3',
+            type: 'multiple-choice',
+            prompt:
+              'You publish a `/map` `OccupancyGrid` once at startup. RViz2 launches 5 seconds later and shows "No map received". Which QoS change fixes this?',
+            options: [
+              'Change Durability from `volatile()` to `transient_local()` on both publisher and subscriber',
+              'Set History to `KeepLast(100)`',
+              'Change Reliability to `best_effort()`',
+              'Use `std::unique_ptr` on publish',
+            ],
+            correctIndex: 0,
+            explanation:
+              '`transient_local()` durability instructs the DDS DataWriter to cache the last N samples and automatically deliver them to late-joining DataReaders.',
           },
         ],
       },
       {
         id: 'u1_n4',
         unitId: 'unit_1',
-        title: 'Unit 1 Boss: Production Graph Audit',
-        subtitle: 'Diagnose QoS, DDS & concurrency failures under pressure',
+        title: 'Executors, Callback Groups & Zero-Copy IPC',
+        subtitle: 'Avoiding deadlocks & passing 4K PointClouds via std::unique_ptr',
         kind: 'boss',
-        estimatedMinutes: 10,
+        estimatedMinutes: 12,
         xpReward: 90,
+        linkedLabId: 'lab_cpp_executor_deadlock',
         keyTakeaways: [
-          'Combine Domain IDs, QoS RxO rules, Composable Nodes, and Callback Groups to debug distributed ROS 2 systems.',
+          'By default, all callbacks in an `rclcpp::Node` belong to one `MutuallyExclusive` callback group and run serially on `SingleThreadedExecutor`.',
+          'Calling a synchronous service wait inside a callback on a `SingleThreadedExecutor` causes a classic single-thread deadlock.',
+          'Composable Nodes (`rclcpp_components`) inside a `ComponentContainer` with `use_intra_process_comms(true)` transfer `std::unique_ptr<MsgT>` zero-copy!',
+        ],
+        deepDive: [
+          {
+            title: '1. Executors & Callback Groups (C++ Concurrency Model)',
+            body: 'An `rclcpp::Executor` is an event-loop dispatcher backed by an OS WaitSet (`rcl_wait`). `SingleThreadedExecutor` drains ready timers, subscriptions, and service responses sequentially on 1 thread. To run callbacks concurrently on a thread pool, you MUST: (1) use `rclcpp::executors::MultiThreadedExecutor`, AND (2) assign callbacks to either `CallbackGroupType::Reentrant` or distinct `CallbackGroupType::MutuallyExclusive` groups.',
+            cppBridge:
+              'Think of `MutuallyExclusive` as a per-group implicit `std::mutex` managed by the executor scheduler, and `Reentrant` as lock-free concurrent dispatch across the thread pool.',
+            code: `cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+auto sub_opt = rclcpp::SubscriptionOptions();
+sub_opt.callback_group = cb_group_;
+
+sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+  "/imu", rclcpp::SensorDataQoS(), cb, sub_opt);`,
+            language: 'cpp',
+          },
+          {
+            title: '2. Zero-Copy Intra-Process Communication with std::unique_ptr',
+            body: 'Serializing a 12 MB RGB-D `PointCloud2` at 30 Hz (360 MB/s) over CDR/UDP burns huge CPU. When multiple C++ `ComposableNode`s share a process (`ComponentContainer`) with `use_intra_process_comms(true)`, publishing a `std::unique_ptr<MsgT>` via `std::move` transfers ownership directly in memory with zero serialization and zero memcpy (for a single subscriber).',
+            code: `// Zero-copy intra-process publish in rclcpp:
+auto msg = std::make_unique<sensor_msgs::msg::Image>();
+// ... populate msg->data ...
+image_pub_->publish(std::move(msg)); // Ownership transferred, 0 copies!`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u1_n4_e1',
-            type: 'sequence-order',
-            prompt:
-              'Order the lifecycle of a ROS 2 DDS message from publisher call to subscriber callback (top = first):',
-            options: [
-              'User calls pub.publish(msg)',
-              'rmw layer serializes msg to CDR (unless intra-process zero-copy)',
-              'DDS DataWriter transmits over UDP/SHM to matched DataReaders',
-              'Executor WaitSet wakes up and dispatches subscription callback',
-            ],
-            correctOrder: [
-              'User calls pub.publish(msg)',
-              'rmw layer serializes msg to CDR (unless intra-process zero-copy)',
-              'DDS DataWriter transmits over UDP/SHM to matched DataReaders',
-              'Executor WaitSet wakes up and dispatches subscription callback',
-            ],
-            explanation:
-              'Understanding the `rcl -> rmw -> DDS -> WaitSet -> Executor` pipeline makes performance profiling and QoS debugging straightforward.',
-          },
-          {
-            id: 'u1_n4_e2',
             type: 'spot-the-bug',
             prompt:
-              'In `rclcpp`, why does this node fail to achieve zero-copy intra-process communication?',
-            codeSnippet: `auto msg = sensor_msgs::msg::Image();
-// ... fill image ...
-pub_->publish(msg);`,
+              'In `rclcpp`, why does this perception publisher STILL copy the 12 MB `PointCloud2` even inside a `ComponentContainer` with intra-process comms enabled?',
+            codeSnippet: `sensor_msgs::msg::PointCloud2 msg;
+fill_cloud(msg);
+cloud_pub_->publish(msg);`,
             language: 'cpp',
             options: [
-              'Image messages cannot use intra-process comms',
-              'Passing by const reference forces a copy; you must publish std::unique_ptr via std::move(msg)',
-              'rclcpp requires Python for zero-copy',
-              'Missing rclcpp::spin_some()',
+              'PointCloud2 is too big for intra-process comms',
+              'Publishing by const reference (`const MsgT&`) prevents ownership transfer, forcing a copy; you must publish `std::unique_ptr<PointCloud2>` via `std::move`',
+              'Intra-process comms only works in Python',
+              'Missing `rclcpp::spin_some()`',
             ],
             correctIndex: 1,
             explanation:
-              'In `rclcpp`, `publish(const MsgT&)` cannot transfer ownership, so DDS/intra-process must copy. Use `auto msg = std::make_unique<Image>(); pub_->publish(std::move(msg));`.',
+              'Because the caller retains `msg` on its stack, `rclcpp` cannot safely hand the pointer to a subscriber without copying. Constructing `std::make_unique<PointCloud2>()` and calling `publish(std::move(msg))` unlocks true zero-copy pointer handoff.',
+          },
+          {
+            id: 'u1_n4_e2',
+            type: 'architecture-tradeoff',
+            prompt:
+              'You have a 100 Hz IMU callback (fast, non-blocking) and a 1 Hz heavy path-planning timer (takes 80 ms). You want them to run concurrently in `MultiThreadedExecutor`, while guaranteeing two instances of the 1 Hz timer NEVER overlap.',
+            options: [
+              'Put both in one `Reentrant` callback group',
+              'Put IMU in `MutuallyExclusive` group A and the timer in `MutuallyExclusive` group B',
+              'Put both in the default `MutuallyExclusive` group',
+              'Use `SingleThreadedExecutor`',
+            ],
+            correctIndex: 1,
+            explanation:
+              'Separate `MutuallyExclusive` groups run in parallel with each other on `MultiThreadedExecutor`, while each group prevents self-reentrancy.',
           },
         ],
       },
@@ -272,109 +392,217 @@ pub_->publish(msg);`,
   {
     id: 'unit_2',
     number: 2,
-    title: 'Pub/Sub, Services, Actions & Lifecycle',
+    title: 'Pub/Sub, Actions, Params & Lifecycle (C++)',
     description:
-      'Choose the right IPC primitive, design preemptable long-running Actions, and manage deterministic robot startup with Lifecycle Nodes.',
+      'Master async C++ service clients, preemptable rclcpp_action servers, dynamic parameters, and Managed Lifecycle Nodes.',
     color: 'sky',
     badgeName: 'IPC & Lifecycle Architect',
     nodes: [
       {
         id: 'u2_n1',
         unitId: 'unit_2',
-        title: 'Topics vs Services vs Actions',
-        subtitle: 'Choosing the right ROS 2 communication primitive',
+        title: 'Topics, Async Services & Deadlock Avoidance',
+        subtitle: 'Choosing Topics vs Services vs Actions in rclcpp',
         kind: 'lesson',
-        estimatedMinutes: 8,
-        xpReward: 45,
+        estimatedMinutes: 10,
+        xpReward: 50,
         keyTakeaways: [
-          'Topics: continuous many-to-many data streams (sensor data, /cmd_vel, /odom).',
-          'Services: fast, short-lived RPC request/response (trigger calibration, query IK) — never block for seconds.',
-          'Actions: long-running, goal-oriented tasks with periodic feedback and preemption/cancellation (NavigateToPose, FollowJointTrajectory).',
+          'Topics: continuous data streams (sensors, `/cmd_vel`, `/odom`).',
+          'Services: brief RPC request/response (<50 ms) — never call `rclcpp::spin_until_future_complete` from inside a callback!',
+          'Use `client->async_send_request(req, callback)` for non-blocking continuation in `rclcpp`.',
+        ],
+        deepDive: [
+          {
+            title: '1. Why Calling a Service Synchronously Inside a Callback Deadlocks',
+            body: 'A common C++ bug when coming from blocking RPC frameworks: inside a timer or subscription callback, you call `auto result = client->async_send_request(req); result.wait();` (or `spin_until_future_complete`). On a `SingleThreadedExecutor`, the executor thread is now blocked inside your callback waiting on the `std::shared_future` — so it can NEVER return to the WaitSet to process the incoming DDS service response!',
+            code: `// SAFE non-blocking C++ pattern (async continuation):
+auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+client_->async_send_request(req,
+  [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+    auto res = future.get();
+    RCLCPP_INFO(get_logger(), "Calibration: %s", res->success ? "OK" : "FAIL");
+  });`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u2_n1_e1',
-            type: 'architecture-tradeoff',
+            type: 'spot-the-bug',
             prompt:
-              'You are designing an API for a robotic arm to pick up a bin — an operation taking 8 seconds that must stream % progress and abort immediately if an obstacle appears. Which primitive?',
+              'Why does this `rclcpp` node hang forever inside `on_timer()` when calling `/calibrate_imu`?',
+            codeSnippet: `void on_timer() {
+  auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+  auto future = client_->async_send_request(req);
+  if (future.wait_for(5s) == std::future_status::ready) { /* ... */ }
+}`,
+            language: 'cpp',
             options: [
-              'A Service `/pick_bin`',
-              'A Topic `/pick_bin_cmd`',
-              'A ROS 2 Action `/pick_bin`',
-              'A ROS 2 Parameter `target_bin`',
+              'Trigger::Request has no fields',
+              '`future.wait_for(5s)` blocks the single executor thread, starving the service response callback',
+              '5s is too short for DDS',
+              'async_send_request requires std::unique_ptr',
             ],
-            correctIndex: 2,
+            correctIndex: 1,
             explanation:
-              'Actions are built atop 3 services + 2 topics under the hood, providing Goal Acceptance, periodic Feedback, Result, and Cancellation/Preemption.',
+              'Blocking the executor thread inside `on_timer()` prevents the executor from spinning and fulfilling `future`. Pass a response callback lambda to `async_send_request(req, cb)` instead.',
           },
           {
             id: 'u2_n1_e2',
-            type: 'multiple-choice',
+            type: 'architecture-tradeoff',
             prompt:
-              'Which 4 states are part of a ROS 2 Action goal’s terminal/active lifecycle?',
+              'You are building a robotic arm pick-and-place routine taking ~6 seconds that must stream % completion and allow instant E-stop preemption. Which ROS 2 primitive?',
             options: [
-              'ACCEPTED -> EXECUTING -> SUCCEEDED / ABORTED / CANCELED',
-              'UNCONFIGURED -> INACTIVE -> ACTIVE -> FINALIZED',
-              'INIT -> SPIN -> SHUTDOWN',
-              'PENDING -> RUNNING -> KILLED',
+              'A Service `/pick_object`',
+              'A Topic `/pick_cmd`',
+              'An `rclcpp_action` Server `/pick_object`',
+              'A ROS 2 Parameter',
             ],
-            correctIndex: 0,
+            correctIndex: 2,
             explanation:
-              'Action goals transition from ACCEPTED -> EXECUTING -> SUCCEEDED, ABORTED (server failed), or CANCELED (client requested cancel).',
+              'Actions are designed specifically for long-running, goal-oriented, preemptable tasks with continuous feedback and terminal states (SUCCEEDED / ABORTED / CANCELED).',
           },
         ],
       },
       {
         id: 'u2_n2',
         unitId: 'unit_2',
-        title: 'Managed Lifecycle Nodes',
-        subtitle: 'Deterministic bringup & safe hardware teardown',
-        kind: 'assignment',
-        estimatedMinutes: 12,
-        xpReward: 70,
-        linkedLabId: 'lab_lifecycle_node',
+        title: 'Preemptable Actions (rclcpp_action) & Params',
+        subtitle: 'Goal/Cancel/Accepted callbacks and dynamic parameter validation',
+        kind: 'lesson',
+        estimatedMinutes: 10,
+        xpReward: 55,
         keyTakeaways: [
-          'LifecycleNodes expose a standard state machine: Unconfigured -> Inactive -> Active -> Finalized.',
-          'Allocate memory/publishers in `on_configure`; enable timers/hardware in `on_activate`; stop motors in `on_deactivate`.',
-          'Nav2’s `nav2_lifecycle_manager` orchestrates bringing up map_server, amcl, planner, and controller in exact dependency order.',
+          '`rclcpp_action::Server` uses 3 callbacks: `handle_goal` (accept/reject), `handle_cancel` (preemption request), and `handle_accepted` (spawn worker thread so executor stays responsive).',
+          'Declare parameters via `declare_parameter<double>("max_speed", 0.5)` and validate runtime updates via `add_on_set_parameters_callback`.',
+        ],
+        deepDive: [
+          {
+            title: '1. The 3-Callback Pattern of rclcpp_action::Server',
+            body: 'In `rclcpp_action`, `handle_accepted` runs on the executor thread. If you execute a 10-second loop directly inside `handle_accepted`, you block cancellation requests! Always detach or dispatch work to a `std::thread` inside `handle_accepted`, periodically checking `goal_handle->is_canceling()`.',
+            code: `void handle_accepted(const std::shared_ptr<GoalHandle> goal_handle) {
+  // Spawn worker thread so executor can still process cancel requests!
+  std::thread{std::bind(&NavActionServer::execute, this, goal_handle)}.detach();
+}
+
+void execute(const std::shared_ptr<GoalHandle> goal_handle) {
+  auto feedback = std::make_shared<Navigate::Feedback>();
+  while (rclcpp::ok() && !reached_goal()) {
+    if (goal_handle->is_canceling()) {
+      goal_handle->canceled(std::make_shared<Navigate::Result>());
+      return;
+    }
+    goal_handle->publish_feedback(feedback);
+    std::this_thread::sleep_for(100ms);
+  }
+  goal_handle->succeed(std::make_shared<Navigate::Result>());
+}`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u2_n2_e1',
+            type: 'spot-the-bug',
+            prompt:
+              'Clients send a Cancel request to your `rclcpp_action::Server`, but `handle_cancel` never runs until the 15-second goal finishes. Why?',
+            options: [
+              'The `execute()` loop is running directly inside `handle_accepted()` on the executor thread instead of a separate thread',
+              'Missing `goal_handle->publish_feedback()`',
+              'Action goals cannot be canceled in ROS 2',
+              'The Result struct is empty',
+            ],
+            correctIndex: 0,
+            explanation:
+              'Running the blocking goal loop inside `handle_accepted()` ties up the executor thread, preventing `handle_cancel` from being dispatched.',
+          },
+          {
+            id: 'u2_n2_e2',
+            type: 'code-fill',
+            prompt:
+              'Inside the action worker loop, which check detects that a client requested preemption/cancellation?',
+            language: 'cpp',
+            codeSnippet: `if (goal_handle->____()) {
+  goal_handle->canceled(result);
+  return;
+}`,
+            options: ['is_canceling', 'is_aborted', 'has_stopped', 'cancel_pending'],
+            correctIndex: 0,
+            explanation:
+              '`goal_handle->is_canceling()` returns `true` once `handle_cancel` returns `CancelResponse::ACCEPT`.',
+          },
+        ],
+      },
+      {
+        id: 'u2_n3',
+        unitId: 'unit_2',
+        title: 'Managed Lifecycle Nodes (rclcpp_lifecycle)',
+        subtitle: 'Deterministic hardware initialization and safe shutdown',
+        kind: 'assignment',
+        estimatedMinutes: 12,
+        xpReward: 75,
+        linkedLabId: 'lab_cpp_lifecycle',
+        keyTakeaways: [
+          'Inherit from `rclcpp_lifecycle::LifecycleNode` instead of `rclcpp::Node` for deterministic state management.',
+          'Allocate memory/publishers in `on_configure`; enable motor output in `on_activate`; zero velocities & disable hardware in `on_deactivate`.',
+          '`LifecyclePublisher::publish()` suppresses messages automatically whenever the node is not in `Active` state.',
+        ],
+        deepDive: [
+          {
+            title: '1. Why Robotics Needs a State Machine Around Every Critical Node',
+            body: 'If you launch 15 nodes simultaneously on a robot, `/controller_server` might try commanding `/cmd_vel` before `/lidar_driver` or `/map_server` is ready. `rclcpp_lifecycle::LifecycleNode` solves this by exposing standard transitions (`Unconfigured -> Inactive -> Active -> Finalized`) orchestrated by a supervisor like `nav2_lifecycle_manager`.',
+            code: `using CallbackReturn =
+  rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+
+CallbackReturn on_configure(const rclcpp_lifecycle::State &) override {
+  cmd_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+  return CallbackReturn::SUCCESS;
+}
+
+CallbackReturn on_activate(const rclcpp_lifecycle::State & state) override {
+  LifecycleNode::on_activate(state); // Activates all LifecyclePublishers
+  return CallbackReturn::SUCCESS;
+}`,
+            language: 'cpp',
+          },
+        ],
+        exercises: [
+          {
+            id: 'u2_n3_e1',
             type: 'sequence-order',
             prompt:
-              'Order the primary state machine transitions to bring a LifecycleNode from boot to publishing:',
+              'Order the lifecycle states/transitions to bring a `LifecycleNode` from boot to active motor control:',
             options: [
               'Unconfigured',
-              'Configuring (on_configure)',
+              'Configuring (`on_configure`)',
               'Inactive',
-              'Activating (on_activate)',
+              'Activating (`on_activate`)',
               'Active',
             ],
             correctOrder: [
               'Unconfigured',
-              'Configuring (on_configure)',
+              'Configuring (`on_configure`)',
               'Inactive',
-              'Activating (on_activate)',
+              'Activating (`on_activate`)',
               'Active',
             ],
             explanation:
-              'Separating `configure` (allocate resources) from `activate` (start actuating/publishing) prevents race conditions during robot boot.',
+              'Separating configuration (resource allocation) from activation (starting actuation) prevents race conditions during robot bringup.',
           },
           {
-            id: 'u2_n2_e2',
+            id: 'u2_n3_e2',
             type: 'multiple-choice',
             prompt:
-              'What happens when you publish to a `LifecyclePublisher` while the node is in the `Inactive` state?',
+              'What happens if a timer calls `cmd_pub_->publish(twist)` on an `rclcpp_lifecycle::LifecyclePublisher` while the node is `Inactive`?',
             options: [
-              'It throws a RuntimeError and crashes the node',
-              'The message is silently suppressed until `on_activate()` is called',
-              'It queues all messages and bursts them upon activation',
-              'It forces the node into Active state automatically',
+              'It throws a segmentation fault',
+              'The `LifecyclePublisher` safely suppresses the message (nothing goes on the wire)',
+              'It automatically transitions the node to `Active`',
+              'It blocks until `on_activate` is called',
             ],
             correctIndex: 1,
             explanation:
-              'LifecyclePublishers gate `publish()` calls based on activation state, making it safe for timers or hardware loops to run without leaking commands while inactive.',
+              'Lifecycle publishers gate transmissions based on activation state, preventing stray motor commands during configuration or teardown.',
           },
         ],
       },
@@ -383,88 +611,171 @@ pub_->publish(msg);`,
   {
     id: 'unit_3',
     number: 3,
-    title: 'URDF, Xacro & TF2 Transforms',
+    title: '3D Geometry, URDF & TF2 Transforms',
     description:
-      'Build kinematic robot descriptions, master REP-103 coordinate frames, and query TF2 without extrapolation errors.',
+      'Learn robotics spatial math from scratch: REP-103 conventions, Quaternions vs Euler angles, URDF inertia tensors, and C++ TF2 lookups.',
     color: 'violet',
-    badgeName: 'TF2 Frame Master',
+    badgeName: 'TF2 & Spatial Math Master',
     nodes: [
       {
         id: 'u3_n1',
         unitId: 'unit_3',
-        title: 'REP-103 & Coordinate Frames',
-        subtitle: 'map -> odom -> base_link -> sensor_frame',
+        title: 'Coordinate Frames, Quaternions & SE(3)',
+        subtitle: 'Why robots track 15+ coordinate frames and avoid Euler gimbal lock',
         kind: 'lab',
         estimatedMinutes: 10,
-        xpReward: 55,
+        xpReward: 60,
         linkedSimTab: 'tf2',
         keyTakeaways: [
-          'REP-103 Right-Handed Rule: +X Forward, +Y Left, +Z Up (Red, Green, Blue in RViz).',
-          'REP-105 Standard Tree: `map -> odom -> base_link`. Every frame has AT MOST ONE parent (tree, never a DAG/cycle).',
-          '`odom -> base_link` is smooth & continuous (wheel odometry/IMU); `map -> odom` absorbs discrete SLAM/AMCL drift corrections.',
+          'REP-103 Right-Handed Rule: +X Forward (Red), +Y Left (Green), +Z Up (Blue).',
+          'A LiDAR measures obstacles relative to `laser_frame`; the wheels actuate around `base_link`; the map lives in `map`. Transforms convert points between frames.',
+          'ROS uses unit Quaternions `(x, y, z, w)` instead of Roll-Pitch-Yaw because Euler angles suffer singularities (gimbal lock) and discontinuous interpolation.',
+        ],
+        deepDive: [
+          {
+            title: '1. Why Every Sensor Has Its Own Coordinate Frame',
+            body: 'Imagine a LiDAR mounted 20 cm forward and rotated 180° upside-down on a robot. When the LiDAR reports an obstacle at `(x=1.0, y=0.0)` in `laser_frame`, that obstacle might actually be *behind* the robot in `base_link`! Robotics tracks every rigid body and sensor as a named **frame** connected by 3D rigid-body transforms $T \\in SE(3)$ (3D translation + 3D rotation).',
+          },
+          {
+            title: '2. Quaternions in C++ (`tf2::Quaternion`)',
+            body: 'Euler angles (Roll, Pitch, Yaw) are intuitive for humans, but lose a degree of freedom at ±90° pitch (gimbal lock) and depend on axis order (XYZ vs ZYX). Unit quaternions `q = (x, y, z, w)` with `||q|| = 1` smoothly interpolate (SLERP) and compose cleanly via `tf2::Quaternion`.',
+            code: `#include "tf2/LinearMath/Quaternion.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+
+tf2::Quaternion q;
+q.setRPY(0.0, 0.0, M_PI_2); // +90 deg yaw (CCW around +Z)
+geometry_msgs::msg::Quaternion msg_q = tf2::toMsg(q);`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u3_n1_e1',
             type: 'multiple-choice',
             prompt:
-              'In a ROS 2 mobile robot following REP-105, which node publishes the `odom -> base_link` transform, and which publishes `map -> odom`?',
+              'According to ROS REP-103 standard coordinate conventions on a mobile robot, which direction does `+Y` point?',
             options: [
-              'AMCL publishes odom->base_link; wheel encoders publish map->odom',
-              'Odometry / EKF publishes odom->base_link; SLAM / AMCL publishes map->odom',
-              'robot_state_publisher publishes both',
-              'static_transform_publisher publishes odom->base_link',
+              'Forward (front of robot)',
+              'Left of the robot',
+              'Right of the robot',
+              'Straight down into the floor',
             ],
             correctIndex: 1,
             explanation:
-              'Odometry/EKF tracks continuous local motion (`odom -> base_link`). Global localization (AMCL/SLAM) corrects global drift by updating `map -> odom` so `base_link` stays accurate in `map`.',
+              'ROS REP-103 defines a right-handed frame: +X is forward, +Y is left, and +Z is up. Rotating +X toward +Y via the right-hand rule gives +Z up (counter-clockwise yaw is positive).',
           },
           {
             id: 'u3_n1_e2',
-            type: 'spot-the-bug',
+            type: 'multiple-choice',
             prompt:
-              'Your robot model explodes in RViz and `tf2` logs "TF_SELF_TRANSFORM" or "multiple parents for base_link". Why?',
+              'In the REP-105 standard mobile robot frame tree `map -> odom -> base_link`, why are there TWO parent frames (`map` and `odom`) above `base_link`?',
             options: [
-              'Both wheel_odom and ekf_filter_node have publish_tf=true for odom->base_link',
-              'robot_state_publisher is running too fast',
-              'URDF uses meters instead of millimeters',
-              'The LiDAR frame is fixed',
+              'Because TF2 requires at least 3 frames to compile',
+              '`odom -> base_link` is locally smooth/continuous (for velocity control), while `map -> odom` absorbs discrete localization jumps from SLAM/AMCL without destabilizing the local controller',
+              '`map` is only for 3D arms and `odom` is for wheels',
+              'To duplicate sensor data for redundancy',
             ],
-            correctIndex: 0,
+            correctIndex: 1,
             explanation:
-              'A TF2 tree strictly allows one parent per frame and one authoritative broadcaster per edge. When fusing odom + IMU in `robot_localization`, disable `publish_tf` on raw wheel odometry!',
+              'A local controller running at 20 Hz will jerk violently if `base_link` suddenly teleports 10 cm when AMCL corrects drift. Keeping `odom -> base_link` continuous and pushing global corrections into `map -> odom` gives the best of both worlds.',
           },
         ],
       },
       {
         id: 'u3_n2',
         unitId: 'unit_3',
-        title: 'URDF, Xacro & TF2 Time Travel',
-        subtitle: 'Building robot descriptions & safe buffer lookups',
+        title: 'URDF, Xacro & Inertia Physics',
+        subtitle: 'Describing robot links, joints, and mass properties for simulation',
         kind: 'assignment',
         estimatedMinutes: 12,
         xpReward: 70,
-        linkedLabId: 'lab_tf2_lookup',
+        linkedLabId: 'lab_urdf_lidar',
         keyTakeaways: [
-          '`robot_state_publisher` reads `/robot_description` (URDF) + `/joint_states` to broadcast `/tf_static` (fixed joints) and `/tf` (revolute/prismatic joints).',
-          'Use `rclpy.time.Time()` (time=0) for latest transform, or `Duration(seconds=0.1)` timeout in `lookup_transform` to wait for incoming transforms.',
-          'Always use `use_sim_time: True` across ALL nodes when replaying bags or running Gazebo.',
+          'URDF models a robot as a strict tree of `<link>` (rigid bodies) and `<joint>` (`fixed`, `revolute`, `continuous`, `prismatic`).',
+          'Each `<link>` has three sections: `<visual>` (rendering), `<collision>` (physics contact), and `<inertial>` (mass + 3×3 symmetric inertia tensor `ixx, iyy, izz`).',
+          '`robot_state_publisher` consumes `/robot_description` + `/joint_states` to broadcast `/tf_static` and `/tf` automatically.',
+        ],
+        deepDive: [
+          {
+            title: '1. Visual vs Collision vs Inertial',
+            body: 'Newcomers often copy a high-poly STL mesh into `<collision>` — tanking Gazebo physics FPS from 60 Hz to 3 Hz! Always use simple primitives (`<box>`, `<cylinder>`, `<sphere>`) for `<collision>`, and compute valid positive `<inertial>` tensors (`I = 1/12 * m * (h² + d²)`) so the physics solver never explodes with NaN.',
+          },
         ],
         exercises: [
           {
             id: 'u3_n2_e1',
             type: 'multiple-choice',
             prompt:
-              'Why does `tf_buffer.lookup_transform("map", "laser_frame", msg.header.stamp)` sometimes throw `ExtrapolationException: Lookup would require extrapolation into the future`?',
+              'Which URDF joint type should you use for a differential-drive robot’s powered wheel that rotates endlessly without angle limits?',
+            options: ['fixed', 'revolute', 'continuous', 'prismatic'],
+            correctIndex: 2,
+            explanation:
+              '`revolute` requires upper/lower angle limits (e.g., an elbow joint). `continuous` allows unbounded 360° rotation, making it the standard choice for wheels.',
+          },
+          {
+            id: 'u3_n2_e2',
+            type: 'spot-the-bug',
+            prompt:
+              'Your robot spawns in Gazebo Sim and immediately shoots into the sky or collapses with NaN joint velocities. What URDF mistake causes this?',
             options: [
-              'The LiDAR driver clock is slightly ahead of the TF broadcaster, or TF hasn’t arrived yet for that timestamp',
-              'The URDF has a syntax error',
-              'TF2 only supports 2D transforms',
-              'You forgot to install Gazebo',
+              'Zero/missing `<inertial>` mass or non-positive-definite inertia matrix (`ixx <= 0`)',
+              'Using Xacro macros',
+              'Naming the root link `base_link`',
+              'Setting joint type to `fixed`',
             ],
             correctIndex: 0,
             explanation:
-              'Sensor messages often arrive milliseconds before the corresponding `odom->base_link` TF at that exact stamp. Pass a small timeout (`timeout=Duration(seconds=0.1)`) or use `tf2_ros.MessageFilter`.',
+              'Physics engines invert the inertia matrix ($\\alpha = I^{-1}\\tau$). Zero mass or zero diagonal inertia entries produce division by zero / singular matrices.',
+          },
+        ],
+      },
+      {
+        id: 'u3_n3',
+        unitId: 'unit_3',
+        title: 'TF2 Listeners, Broadcasters & Time Travel (C++)',
+        subtitle: 'Querying transforms safely with tf2_ros::Buffer & tf2::doTransform',
+        kind: 'assignment',
+        estimatedMinutes: 12,
+        xpReward: 75,
+        linkedLabId: 'lab_cpp_tf2_listener',
+        keyTakeaways: [
+          'Always store `tf2_ros::Buffer` and `tf2_ros::TransformListener` as member variables (`std::shared_ptr`/`unique_ptr`) so `/tf` stays subscribed.',
+          'Pass `tf2::TimePointZero` for the latest transform, or a small timeout (`tf2::durationFromSec(0.1)`) when looking up a sensor timestamp.',
+          'Use `tf2::doTransform(point_in, point_out, transform)` to project sensor points between frames cleanly.',
+        ],
+        deepDive: [
+          {
+            title: '1. C++ TF2 Lookup Pattern',
+            body: 'In C++, `tf2_ros::Buffer` maintains a 10-second sliding ring buffer of all transforms on `/tf` and `/tf_static`, interpolating linearly for translations and SLERPing for quaternions.',
+            code: `tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+try {
+  auto tf = tf_buffer_->lookupTransform(
+    "base_link", "laser_frame", tf2::TimePointZero);
+  geometry_msgs::msg::PointStamped pt_base;
+  tf2::doTransform(pt_laser, pt_base, tf);
+} catch (const tf2::TransformException & ex) {
+  RCLCPP_WARN(get_logger(), "TF lookup failed: %s", ex.what());
+}`,
+            language: 'cpp',
+          },
+        ],
+        exercises: [
+          {
+            id: 'u3_n3_e1',
+            type: 'multiple-choice',
+            prompt:
+              'Why does `tf_buffer_->lookupTransform("map", "laser_frame", msg->header.stamp)` occasionally throw `tf2::ExtrapolationException` in real robots?',
+            options: [
+              'Because the sensor scan arrives a few milliseconds before the latest `odom -> base_link` transform for that exact timestamp has been published',
+              'Because `laser_frame` is not in C++',
+              'Because TF2 only works with 2D coordinates',
+              'Because `std::make_unique` deletes the buffer',
+            ],
+            correctIndex: 0,
+            explanation:
+              'Network/serial jitter causes sensor messages and odometry TF broadcasts to arrive slightly out of order. Passing a timeout (`tf2::durationFromSec(0.05)`) or using `tf2_ros::MessageFilter` waits until the matching TF arrives.',
           },
         ],
       },
@@ -473,87 +784,159 @@ pub_->publish(msg);`,
   {
     id: 'unit_4',
     number: 4,
-    title: 'Control, Kinematics & State Estimation',
+    title: 'Kinematics, PID Control & Sensor Fusion',
     description:
-      'Tune PID loops with anti-windup, derive differential-drive odometry, and fuse IMU + wheel encoders with EKF.',
+      'Master robotics math & physics from first principles: diff-drive unicycle kinematics, PID tuning + anti-windup, and EKF sensor fusion.',
     color: 'amber',
-    badgeName: 'Control & EKF Engineer',
+    badgeName: 'Control & Estimation Engineer',
     nodes: [
       {
         id: 'u4_n1',
         unitId: 'unit_4',
-        title: 'PID Control & Anti-Windup Lab',
-        subtitle: 'Tuning Kp, Ki, Kd and eliminating integral windup',
+        title: 'Differential-Drive Kinematics & Odometry',
+        subtitle: 'Mapping wheel speeds (v_L, v_R) to chassis motion (v, ω)',
         kind: 'lab',
         estimatedMinutes: 10,
-        xpReward: 60,
-        linkedSimTab: 'pid',
+        xpReward: 65,
+        linkedSimTab: 'diffdrive',
         keyTakeaways: [
-          'Proportional (Kp) drives responsiveness; too high causes oscillation.',
-          'Integral (Ki) eliminates steady-state error (e.g., friction/gravity) but causes overshoot and "windup" when actuators saturate.',
-          'Derivative (Kd) damps overshoot and acts like virtual viscosity, but amplifies high-frequency encoder/IMU noise (always low-pass filter D!).',
+          'Forward kinematics: Linear velocity v = (v_R + v_L) / 2, Angular velocity ω = (v_R - v_L) / L (where L is wheel separation).',
+          'Inverse kinematics: v_L = v - (ω * L / 2), v_R = v + (ω * L / 2).',
+          'Odometry integrates encoder ticks over dt into (x, y, θ) — any tiny wheel-radius calibration error or slip integrates into unbounded heading drift!',
+        ],
+        deepDive: [
+          {
+            title: '1. From Wheel Encoders to Chassis Velocity (v, ω)',
+            body: 'A differential-drive robot has two driven wheels separated by wheelbase $L$. If both spin forward at speed $v$, the robot moves straight ($\\omega = 0$). If the right wheel spins faster ($v_R > v_L$), the robot arcs left (positive $\\omega$ by right-hand rule around $+Z$).',
+            code: `// Differential drive kinematics in C++:
+double v = 0.5 * (v_right + v_left);
+double omega = (v_right - v_left) / wheel_separation;
+
+// Dead-reckoning Euler integration over dt:
+x_ += v * std::cos(theta_) * dt;
+y_ += v * std::sin(theta_) * dt;
+theta_ += omega * dt;`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u4_n1_e1',
             type: 'multiple-choice',
             prompt:
-              'A robot arm gets stuck on an obstacle for 5 seconds while commanded to move. Once cleared, it violently overshoots the target. What is missing from the PID controller?',
+              'A differential-drive robot has wheelbase L = 0.5 m. You command pure in-place rotation: v = 0.0 m/s, ω = +2.0 rad/s (counter-clockwise). What are (v_L, v_R)?',
             options: [
-              'Higher Kp gain',
-              'Integral anti-windup (clamping or back-calculation)',
-              'Removing the Proportional term',
-              'Switching from radians to degrees',
+              'v_L = +0.5 m/s, v_R = -0.5 m/s',
+              'v_L = -0.5 m/s, v_R = +0.5 m/s',
+              'v_L = +1.0 m/s, v_R = +1.0 m/s',
+              'v_L = 0.0 m/s, v_R = +1.0 m/s',
             ],
             correctIndex: 1,
             explanation:
-              'While blocked, the error persists and the integral term accumulates to a huge value ("windup"). Clamping the integral term or pausing integration during actuator saturation prevents violent overshoot.',
+              'Using inverse kinematics: v_L = 0 - (2.0 * 0.5)/2 = -0.5 m/s (backward), v_R = 0 + (2.0 * 0.5)/2 = +0.5 m/s (forward). Spinning right wheel forward and left backward turns CCW (+ω).',
           },
           {
             id: 'u4_n1_e2',
             type: 'multiple-choice',
             prompt:
-              'Your velocity controller responds sluggishly and settles 8% below the target speed. What should you tune?',
+              'Why is wheel odometry (`odom`) accurate over 1 meter, yet drifts terribly over 50 meters?',
             options: [
-              'Increase Kd only',
-              'Increase Kp and add a small Ki (or feedforward term)',
-              'Decrease Kp to zero',
-              'Invert the sign of Kd',
+              'DDS drops odometry messages after 10 meters',
+              'Dead-reckoning integrates small wheel-slip and tire-radius errors over time; angular heading error θ compounds quadratically into (x, y) position error',
+              'C++ double precision overflows after 50 meters',
+              'Encoders cannot measure negative velocities',
             ],
             correctIndex: 1,
             explanation:
-              'A persistent steady-state offset is eliminated by Integral action (Ki) and/or a velocity feedforward term (Kff * target_vel).',
+              'A 2° heading error from turning on slick concrete makes every subsequent forward step point in the wrong direction. That is why we fuse IMU gyro + SLAM!',
           },
         ],
       },
       {
         id: 'u4_n2',
         unitId: 'unit_4',
-        title: 'Diff-Drive Kinematics & EKF Fusion',
-        subtitle: 'Unicycle model, covariance matrices & robot_localization',
-        kind: 'lesson',
+        title: 'PID Control Physics & Anti-Windup',
+        subtitle: 'Springs, dampers, derivative noise filtering & actuator clamping',
+        kind: 'lab',
         estimatedMinutes: 10,
-        xpReward: 60,
+        xpReward: 65,
+        linkedSimTab: 'pid',
         keyTakeaways: [
-          'Differential drive forward kinematics: v = (v_R + v_L)/2, ω = (v_R - v_L)/L (wheelbase).',
-          'Wheel odometry drifts in heading (yaw) during turns/slip; IMUs measure angular velocity (ω_z) accurately over short horizons.',
-          '`robot_localization` (`ekf_node`) fuses `/odom` (vx, vy) + `/imu/data` (yaw rate, orientation) using each sensor’s covariance matrix.',
+          'Proportional (Kp) acts like a virtual spring pulling error to zero; too high causes oscillation.',
+          'Derivative (Kd) acts like a virtual shock absorber damping velocity/overshoot, but amplifies high-frequency sensor noise.',
+          'Integral (Ki) eliminates steady-state bias (friction, gravity) — MUST have anti-windup clamping when actuators saturate!',
+        ],
+        deepDive: [
+          {
+            title: '1. Physical Intuition of PID for Software Engineers',
+            body: 'Think of a robot joint trying to reach target angle $r$. Error is $e(t) = r - y(t)$. $K_p \\cdot e$ pulls toward the target. $K_d \\cdot \\dot{e}$ brakes as you approach quickly so you don’t overshoot. $K_i \\int e\\,dt$ remembers persistent stubborn error (like gravity pulling an arm down) and pushes harder until steady-state error hits zero.',
+            code: `// Safe C++ PID step with anti-windup clamping:
+double err = setpoint - measured;
+double deriv = (err - prev_err_) / dt;
+prev_err_ = err;
+
+double raw_u = kp_ * err + ki_ * integral_ + kd_ * deriv;
+double u = std::clamp(raw_u, -max_effort_, max_effort_);
+
+// Conditional integration anti-windup: only integrate when not saturated!
+if (u == raw_u) {
+  integral_ += err * dt;
+}`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u4_n2_e1',
-            type: 'architecture-tradeoff',
+            type: 'multiple-choice',
             prompt:
-              'In `robot_localization` EKF config, both `/odom` and `/imu/data` provide yaw. Wheel slip causes `/odom` yaw to drift badly. How should you configure `odom0_config` and `imu0_config`?',
+              'A rover gets stuck against a threshold for 4 seconds while commanded forward. When lifted over the threshold, it rockets forward at full power and crashes. What failed?',
             options: [
-              'Fuse absolute X, Y, and Yaw from both sensors simultaneously',
-              'Fuse linear velocity (vx) from /odom, and angular velocity (vyaw) + orientation from /imu/data',
-              'Disable /imu/data completely',
-              'Set all covariances to 0.0',
+              'Kp was negative',
+              'Integral windup: the integral accumulator grew huge while blocked; conditional integration / clamping anti-windup was missing',
+              'Derivative term was too small',
+              'dt was measured in seconds instead of hours',
             ],
             correctIndex: 1,
             explanation:
-              'Fusing `vx` from wheel encoders with `vyaw` from the IMU avoids wheel-slip heading corruption. Never set covariance to 0.0 (it causes singular matrix inversion or over-trusting a noisy sensor).',
+              'During saturation/stall, `integral_` keeps growing unboundedly ("windup"). Stopping integration whenever actuator output is clamped prevents violent post-stall overshoot.',
+          },
+        ],
+      },
+      {
+        id: 'u4_n3',
+        unitId: 'unit_4',
+        title: 'Sensor Fusion & EKF (robot_localization)',
+        subtitle: 'Why no single sensor is enough & how Kalman covariance works',
+        kind: 'lesson',
+        estimatedMinutes: 10,
+        xpReward: 65,
+        keyTakeaways: [
+          'Sensors have complementary failure modes: Wheel encoders measure linear speed well (but slip on yaw); IMUs measure angular rate well (but double-integrated position drifts fast).',
+          'An Extended Kalman Filter (EKF) alternates: (1) Predict next state via motion model, and (2) Update/correct state weighted by sensor vs model uncertainty (Covariance).',
+          'In `robot_localization`, disable `publish_tf` on raw wheel odometry so `ekf_filter_node` is the single TF authority for `odom -> base_link`.',
+        ],
+        deepDive: [
+          {
+            title: '1. Kalman Gain in Plain English',
+            body: 'Every ROS 2 sensor message (`Odometry`, `Imu`) carries a $6 \\times 6$ `covariance` matrix representing variance ($\\sigma^2$). The EKF computes the Kalman Gain $K = P H^T (H P H^T + R)^{-1}$. When sensor noise $R$ is small relative to state uncertainty $P$, $K \\to 1$ (trust the sensor). When $R$ is huge, $K \\to 0$ (trust the motion prediction).',
+          },
+        ],
+        exercises: [
+          {
+            id: 'u4_n3_e1',
+            type: 'architecture-tradeoff',
+            prompt:
+              'Configuring `robot_localization` EKF for a mobile robot with wheel encoders (`/odom`) and an IMU (`/imu/data`), which signals should you fuse?',
+            options: [
+              'Fuse absolute X, Y, Yaw from both `/odom` and `/imu/data`',
+              'Fuse `vx` from `/odom` and `vyaw` + `orientation` from `/imu/data`',
+              'Set every covariance entry to `0.0` so the filter trusts both 100%',
+              'Fuse acceleration `ax` alone to compute position',
+            ],
+            correctIndex: 1,
+            explanation:
+              'Fusing `vx` from wheel encoders and `vyaw` from the IMU gives accurate translation without wheel-slip yaw corruption. Setting covariance to `0.0` causes singular matrix issues.',
           },
         ],
       },
@@ -562,92 +945,122 @@ pub_->publish(msg);`,
   {
     id: 'unit_5',
     number: 5,
-    title: 'Perception, SLAM & Nav2',
+    title: 'SLAM, Path Planning & Nav2 (C++)',
     description:
-      'Build 2D/3D maps with slam_toolbox, tune Nav2 costmaps, and orchestrate autonomous navigation with Behavior Trees.',
+      'Build maps with slam_toolbox, understand Configuration Space & Costmaps, tune MPPI, and write C++ BehaviorTree.CPP plugins.',
     color: 'rose',
-    badgeName: 'Nav2 Navigator',
+    badgeName: 'Nav2 & BT.CPP Navigator',
     nodes: [
       {
         id: 'u5_n1',
         unitId: 'unit_5',
-        title: 'SLAM, Costmaps & Planners',
-        subtitle: 'Global Smac/NavFn vs Local MPPI/DWB',
+        title: 'Occupancy Grids, SLAM & Costmaps',
+        subtitle: 'From LiDAR LaserScan polar ranges to Configuration Space inflation',
         kind: 'assignment',
         estimatedMinutes: 12,
         xpReward: 75,
         linkedLabId: 'lab_nav2_yaml',
         keyTakeaways: [
-          'Global Costmap (`map` frame) plans long-range paths; Local Costmap (`odom` frame, rolling window) avoids dynamic obstacles at 10–20 Hz.',
-          'Inflation Layer adds exponential cost gradients around obstacles up to `inflation_radius` (> `robot_radius`).',
-          'MPPI (Model Predictive Path Integral) samples thousands of trajectories in parallel on CPU/SIMD for smooth, non-holonomic control.',
+          '2D LiDAR emits `sensor_msgs::msg::LaserScan` (polar ranges `r[i]` at angle `angle_min + i * angle_increment`), projected to Cartesian `(r*cos(θ), r*sin(θ))`.',
+          'SLAM (`slam_toolbox`) builds a 2D `OccupancyGrid` (-1 unknown, 0 free, 100 occupied) and performs pose-graph loop closure when revisiting known rooms.',
+          'Costmaps inflate obstacles by `robot_radius` + safety margin (`inflation_radius`) so the planner can treat the robot as a single point in Configuration Space (C-space).',
+        ],
+        deepDive: [
+          {
+            title: '1. Configuration Space (C-Space) & Costmap Inflation',
+            body: 'Planning for a 0.70 m wide robot directly against 1-pixel walls is hard. By inflating every obstacle cell outward by `robot_radius` (`0.35 m`), any point outside the lethal inflated zone is guaranteed collision-free for the robot’s center! Adding a smooth exponential cost decay up to `inflation_radius` (`0.55 m`) encourages paths down the center of hallways.',
+          },
         ],
         exercises: [
           {
             id: 'u5_n1_e1',
-            type: 'multiple-choice',
-            prompt:
-              'Why does Nav2’s `local_costmap` use `global_frame: odom` instead of `map`?',
-            options: [
-              'odom is smaller in memory',
-              'map frame can jump discretely during AMCL/SLAM corrections, which would destabilize high-rate local obstacle avoidance',
-              'local_costmap does not support LaserScan in map frame',
-              'odom is only used in Gazebo',
-            ],
-            correctIndex: 1,
-            explanation:
-              'Local controllers run at 10–30 Hz and require a smooth, continuous coordinate frame (`odom`) so sudden localization relocalizations don’t cause erratic steering.',
-          },
-          {
-            id: 'u5_n1_e2',
             type: 'spot-the-bug',
             prompt:
-              'Your robot hugs walls dangerously close and sometimes clips corners. Looking at `nav2_params.yaml`, what is wrong?',
+              'Your robot scrapes walls on tight turns. Inspect `nav2_params.yaml` — why?',
             codeSnippet: `robot_radius: 0.35
 inflation_layer:
   plugin: "nav2_costmap_2d::InflationLayer"
-  cost_scaling_factor: 10.0
-  inflation_radius: 0.25`,
+  inflation_radius: 0.20`,
             language: 'yaml',
             options: [
-              'cost_scaling_factor must be negative',
-              'inflation_radius (0.25) is smaller than robot_radius (0.35), so no lethal/inscribed buffer extends beyond the chassis',
-              'InflationLayer only works in 3D',
-              'robot_radius should be in millimeters',
+              '`inflation_radius` (0.20) is smaller than `robot_radius` (0.35), leaving no safe clearance gradient outside the chassis',
+              'InflationLayer only works in `map` frame',
+              'robot_radius must be negative',
+              'YAML indentation uses 2 spaces',
             ],
-            correctIndex: 1,
+            correctIndex: 0,
             explanation:
-              '`inflation_radius` must be strictly greater than `robot_radius` (typically `robot_radius + 0.20m` or more) so the planner sees repulsive costs before collision.',
+              '`inflation_radius` must always exceed `robot_radius` so the costmap creates a soft repulsive buffer around walls.',
+          },
+          {
+            id: 'u5_n1_e2',
+            type: 'multiple-choice',
+            prompt:
+              'In Nav2, why does `local_costmap` operate in `global_frame: odom` while `global_costmap` operates in `global_frame: map`?',
+            options: [
+              'Because `odom` never jumps discontinuously during AMCL/SLAM loop closures, keeping 20 Hz obstacle avoidance smooth',
+              'Because `local_costmap` cannot read LaserScan in `map` frame',
+              'Because `map` is 3D and `odom` is 2D',
+              'To double RAM usage',
+            ],
+            correctIndex: 0,
+            explanation:
+              'Global localization jumps would make the local controller swerve abruptly; `odom` guarantees smooth short-horizon control.',
           },
         ],
       },
       {
         id: 'u5_n2',
         unitId: 'unit_5',
-        title: 'Nav2 Behavior Trees',
-        subtitle: 'Reactive recovery behaviors & BT.CPP orchestration',
-        kind: 'lesson',
-        estimatedMinutes: 8,
-        xpReward: 55,
+        title: 'Behavior Trees in C++ (BehaviorTree.CPP)',
+        subtitle: 'Writing custom Nav2 BT action nodes in modern C++',
+        kind: 'assignment',
+        estimatedMinutes: 12,
+        xpReward: 80,
+        linkedLabId: 'lab_cpp_bt_node',
         keyTakeaways: [
-          'Nav2 uses BehaviorTree.CPP (`bt_navigator`) to coordinate `ComputePathToPose`, `FollowPath`, and recovery nodes (`Spin`, `BackUp`, `ClearEntireCostmap`).',
-          'Behavior Trees tick top-down and return `SUCCESS`, `FAILURE`, or `RUNNING` — much more modular than monolithic Finite State Machines.',
+          'Nav2’s `bt_navigator` runs `BehaviorTree.CPP` — modular trees of `Sequence` (AND), `Fallback` (OR / recovery), and leaf `Action`/`Condition` nodes.',
+          'Each node implements `tick()` returning `BT::NodeStatus::SUCCESS`, `FAILURE`, or `RUNNING` — never block inside `tick()`!',
+          'Nodes communicate via a typed `Blackboard` (`getInput<T>("key")`, `setOutput("key", val)`).',
+        ],
+        deepDive: [
+          {
+            title: '1. Custom C++ BT::SyncActionNode',
+            body: 'Unlike Finite State Machines where $N$ states require $O(N^2)$ transition edges, Behavior Trees compose hierarchically. A `Fallback` tries `FollowPath`; if an obstacle blocks it (`FAILURE`), it automatically ticks `ClearEntireCostmap` -> `Spin` -> `BackUp`.',
+            code: `class CheckBattery : public BT::ConditionNode {
+public:
+  CheckBattery(const std::string & name, const BT::NodeConfig & config)
+  : BT::ConditionNode(name, config) {}
+
+  static BT::PortsList providedPorts() {
+    return { BT::InputPort<double>("min_voltage") };
+  }
+
+  BT::NodeStatus tick() override {
+    double min_v = 22.0;
+    getInput("min_voltage", min_v);
+    return (current_voltage_ >= min_v)
+      ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+  }
+};`,
+            language: 'cpp',
+          },
         ],
         exercises: [
           {
             id: 'u5_n2_e1',
             type: 'multiple-choice',
             prompt:
-              'In a Behavior Tree, a `Fallback` (Selector) node ticks its children left-to-right. When does it return `SUCCESS`?',
+              'In `BehaviorTree.CPP`, what happens if you run a `while (!goal_done) sleep(10ms);` loop inside a `BT::SyncActionNode::tick()`?',
             options: [
-              'Only when ALL children return SUCCESS',
-              'As soon as ANY child returns SUCCESS (used for trying primary behavior, then falling back to recovery)',
-              'Never; Fallback nodes only return RUNNING',
-              'When the first child returns FAILURE',
+              'It runs in a background thread automatically',
+              'It freezes the entire Behavior Tree tick loop, preventing reactive obstacle/battery checks from ticking!',
+              'It returns `RUNNING` automatically',
+              'It resets the Blackboard',
             ],
             correctIndex: 1,
             explanation:
-              'Think of `Sequence` as logical AND (all must succeed) and `Fallback` as logical OR (try primary; if it fails, try recovery).',
+              'BT ticks are synchronous and must return quickly! Long-running actions should inherit from `BT::StatefulActionNode` or `RosActionNode` and return `BT::NodeStatus::RUNNING` until finished.',
           },
         ],
       },
@@ -656,79 +1069,105 @@ inflation_layer:
   {
     id: 'unit_6',
     number: 6,
-    title: 'Simulation, MoveIt 2 & Production',
+    title: 'Gazebo, ros2_control, MoveIt 2 & Real-Time C++',
     description:
-      'Bridge Gazebo Sim with ros_gz, write ros2_control hardware interfaces, plan 6-DOF arm trajectories, and record deterministic rosbags.',
+      'Achieve sim-to-real parity with ros2_control C++ plugins, plan 6-DOF arm trajectories with MoveIt 2, and write PREEMPT_RT-safe C++.',
     color: 'cyan',
-    badgeName: 'Principal Roboticist',
+    badgeName: 'Principal Robotics Architect',
     nodes: [
       {
         id: 'u6_n1',
         unitId: 'unit_6',
-        title: 'Gazebo Sim & ros2_control',
-        subtitle: 'Sim-to-real parity with ros_gz_bridge & Controller Manager',
+        title: 'Gazebo Sim & ros2_control C++ Hardware Interface',
+        subtitle: 'Sim-to-real parity via hardware_interface::SystemInterface',
         kind: 'lesson',
         estimatedMinutes: 10,
-        xpReward: 65,
+        xpReward: 70,
         keyTakeaways: [
-          '`ros_gz_bridge` (`parameter_bridge`) translates Gazebo Transport topics (e.g., `/clock`, `/scan`, `/cmd_vel`) into ROS 2 topics.',
-          '`ros2_control` decouples controllers (`diff_drive_controller`, `joint_trajectory_controller`) from hardware via `SystemInterface` plugins — swap `gz_ros2_control` for real EtherCAT/CAN hardware with zero controller code changes.',
+          '`ros_gz_bridge` translates Gazebo Transport topics (`/clock`, `/scan`, `/cmd_vel`) into ROS 2 topics.',
+          '`ros2_control` runs a real-time loop: `read()` hardware state -> `controller_manager->update()` -> `write()` hardware commands.',
+          'Swap `gz_ros2_control` (simulation) for a real EtherCAT/CAN `SystemInterface` C++ plugin with zero changes to controllers or Nav2!',
+        ],
+        deepDive: [
+          {
+            title: '1. The ros2_control C++ Real-Time Loop',
+            body: 'In production C++ robotics, you don’t subscribe to `/cmd_vel` inside a motor driver node with unbounded latency. Instead, `controller_manager` owns a single high-priority real-time loop calling `hardware->read(time, period)`, updating `diff_drive_controller` / `joint_trajectory_controller`, and calling `hardware->write(time, period)`.',
+          },
         ],
         exercises: [
           {
             id: 'u6_n1_e1',
             type: 'multiple-choice',
             prompt:
-              'Why is `ros2_control` considered essential for sim-to-real parity in production robotics?',
+              'Why does `ros2_control` separate Controllers (`diff_drive_controller`) from `hardware_interface::SystemInterface` C++ plugins?',
             options: [
-              'It automatically trains reinforcement learning policies',
-              'Controllers talk to abstract Command/State Interfaces, allowing the exact same controller YAML/code to run against Gazebo in CI and real actuators on the robot',
-              'It replaces DDS with HTTP/REST',
-              'It compiles Python to C++',
+              'So the exact same controller binaries and YAML configs run unmodified in Gazebo CI simulation and on physical CAN/EtherCAT hardware',
+              'Because Gazebo only supports Python controllers',
+              'To replace DDS with HTTP',
+              'To bypass URDF files',
             ],
-            correctIndex: 1,
+            correctIndex: 0,
             explanation:
-              'Hardware abstraction via `hardware_interface::SystemInterface` means your `diff_drive_controller` or `joint_trajectory_controller` behaves identically in simulation and on physical hardware.',
+              'Command and State interfaces abstract hardware registers into `double*` memory handles, guaranteeing true sim-to-real parity.',
           },
         ],
       },
       {
         id: 'u6_n2',
         unitId: 'unit_6',
-        title: 'MoveIt 2, Rosbag2 & CI',
-        subtitle: 'OMPL motion planning, MCAP bags & regression testing',
+        title: 'MoveIt 2 C++ API & Real-Time C++ Hygiene',
+        subtitle: 'Inverse Kinematics, OMPL motion planning, PREEMPT_RT & MCAP bags',
         kind: 'boss',
-        estimatedMinutes: 10,
+        estimatedMinutes: 12,
         xpReward: 100,
         keyTakeaways: [
-          'MoveIt 2 uses `move_group` + OMPL/Pilz planners + `planning_scene` collision checking to generate collision-free `JointTrajectory` plans.',
-          'ROS 2 Humble+ defaults to MCAP format for `ros2 bag record` — fast, self-contained (embeds message schemas), and ideal for Foxglove visualization & CI replay.',
+          'Forward Kinematics (FK) maps joint angles `q -> end-effector pose`; Inverse Kinematics (IK) solves `target pose -> valid joint angles q` (often multiple solutions or unreachable).',
+          'MoveIt 2 (`moveit::planning_interface::MoveGroupInterface` in C++) queries OMPL planners (RRTConnect) against a collision `PlanningScene`.',
+          'In 1 kHz real-time C++ (`PREEMPT_RT`), NEVER allocate heap memory (`new`/`std::vector::push_back`), log synchronously, or block on mutexes — use pre-allocated buffers & lock-free SPSC queues (`realtime_tools::RealtimeBox`).',
+        ],
+        deepDive: [
+          {
+            title: '1. Real-Time C++ Rules for Robotics Control Loops',
+            body: 'As a C++ developer, this is where your systems mastery shines: a single `malloc` page fault or `std::mutex` contention in a 1 kHz `ros2_control::write()` loop causes a missed deadline and actuator jitter. Pre-allocate all `std::vector` capacities in `on_configure()`, lock memory with `mlockall`, and bridge non-RT ROS subscribers to the RT loop using `realtime_tools::RealtimeBuffer` or lock-free ring buffers.',
+          },
         ],
         exercises: [
           {
             id: 'u6_n2_e1',
-            type: 'multiple-choice',
+            type: 'spot-the-bug',
             prompt:
-              'Which rosbag2 storage format (default in ROS 2 Iron/Jazzy, supported in Humble) embeds `.msg` schemas inside the bag file so you can inspect it later even without the original custom message packages?',
-            options: ['sqlite3 (.db3)', 'MCAP (.mcap)', 'CSV', 'JSONL'],
-            correctIndex: 1,
+              'During a 1 kHz `PREEMPT_RT` `ros2_control::write()` cycle, your joint trajectory intermittently jitters by 4 ms. Spot the real-time C++ violation:',
+            codeSnippet: `hardware_interface::return_type write(const rclcpp::Time &, const rclcpp::Duration &) override {
+  std::vector<double> cmds;
+  for (auto val : hw_commands_) cmds.push_back(val); // <-- inside 1kHz RT loop
+  can_bus_.send(cmds);
+  return hardware_interface::return_type::OK;
+}`,
+            language: 'cpp',
+            options: [
+              '`std::vector<double> cmds` + `push_back()` allocates heap memory inside the deterministic 1 kHz RT loop',
+              'hw_commands_ must be floats',
+              'return_type::OK causes a deadlock',
+              'CAN bus cannot run at 1 kHz',
+            ],
+            correctIndex: 0,
             explanation:
-              'MCAP is purpose-built for robotics logging: append-only, high-throughput, indexed, and self-describing with embedded message definitions.',
+              'Heap allocation (`malloc`/`new`) acquires allocator locks and can trigger OS page faults, breaking real-time determinism. Pre-allocate fixed-size `std::array` or reserve a member `std::vector` in `on_init()`/`on_configure()`.',
           },
           {
             id: 'u6_n2_e2',
             type: 'architecture-tradeoff',
             prompt:
-              'When replaying a `ros2 bag play` recording to test your localization node offline, your node’s TF lookups fail with timestamp mismatches. What flag did you forget?',
+              'You replay a `.mcap` rosbag (`ros2 bag play run.mcap`) to debug your C++ EKF node, and TF2 throws timestamp errors because node clocks use wall time (2026) while the bag was recorded in 2025. Fix?',
             options: [
-              '--clock on ros2 bag play AND use_sim_time:=true on your localization node',
-              '--loop on ros2 bag play',
-              'ROS_DOMAIN_ID=99',
-              'QoS Durability = Volatile',
+              'Run `ros2 bag play run.mcap --clock` AND launch your C++ node with `use_sim_time:=true`',
+              'Recompile the C++ node with `-O3`',
+              'Set `ROS_DOMAIN_ID=0`',
+              'Convert `.mcap` to CSV',
             ],
             correctIndex: 0,
             explanation:
-              'Playing a bag with `--clock` publishes `/clock` at the recorded timestamps, and `use_sim_time:=true` tells nodes to use `/clock` instead of wall-clock system time.',
+              '`--clock` publishes `/clock` from the bag timestamps, and `use_sim_time:=true` makes `this->get_clock()->now()` track `/clock` deterministically.',
           },
         ],
       },

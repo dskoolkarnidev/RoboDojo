@@ -2,282 +2,336 @@ import type { CodeLabTask } from '../types/curriculum';
 
 export const CODE_LABS: CodeLabTask[] = [
   {
-    id: 'lab_qos_sensor_node',
+    id: 'lab_cpp_pub_sub',
     unitId: 'unit_1',
-    title: 'Sensor-Data QoS Publisher & Watchdog Node',
+    title: 'C++ Sensor-Data QoS Watchdog & Safety Node',
     difficulty: 'Intermediate',
-    estimatedMinutes: 10,
-    xpReward: 60,
-    language: 'python',
-    brief:
-      'Build an rclpy node that publishes high-frequency IMU data using SensorDataQoS (Best Effort, Volatile) and runs a 2 Hz watchdog timer that logs a warning if no command has been received recently.',
-    requirements: [
-      'Subclass `rclpy.node.Node` with node name `"imu_watchdog_node"`',
-      'Import and configure `QoSProfile` with `ReliabilityPolicy.BEST_EFFORT` and `DurabilityPolicy.VOLATILE` (or `qos_profile_sensor_data`)',
-      'Create a publisher on `"/imu/data"` using `Imu` message type',
-      'Create a 0.5s timer (`create_timer(0.5, ...)`) that checks elapsed time via `self.get_clock().now()`',
-    ],
-    starterCode: `import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-from sensor_msgs.msg import Imu
-
-class ImuWatchdogNode(Node):
-    def __init__(self):
-        # TODO: Initialize node as 'imu_watchdog_node'
-        pass
-
-        # TODO: Define Best-Effort, Volatile QoS profile with depth=5
-        sensor_qos = None
-
-        # TODO: Create publisher on '/imu/data'
-        self.imu_pub = None
-
-        self.last_rx_time = self.get_clock().now()
-        # TODO: Create 0.5s watchdog timer
-        self.timer = None
-
-    def watchdog_cb(self):
-        elapsed = (self.get_clock().now() - self.last_rx_time).nanoseconds / 1e9
-        if elapsed > 1.0:
-            self.get_logger().warn(f'No IMU frames for {elapsed:.2f}s')
-`,
-    solutionCode: `import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-from sensor_msgs.msg import Imu
-
-class ImuWatchdogNode(Node):
-    def __init__(self):
-        super().__init__('imu_watchdog_node')
-
-        sensor_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            durability=DurabilityPolicy.VOLATILE,
-            depth=5
-        )
-
-        self.imu_pub = self.create_publisher(Imu, '/imu/data', sensor_qos)
-        self.last_rx_time = self.get_clock().now()
-        self.timer = self.create_timer(0.5, self.watchdog_cb)
-
-    def watchdog_cb(self):
-        elapsed = (self.get_clock().now() - self.last_rx_time).nanoseconds / 1e9
-        if elapsed > 1.0:
-            self.get_logger().warn(f'No IMU frames for {elapsed:.2f}s')
-`,
-    hints: [
-      'Always call `super().__init__("imu_watchdog_node")` first so `self.get_clock()` and `self.create_publisher()` are initialized.',
-      'Pass `sensor_qos` as the 3rd argument to `self.create_publisher(Imu, "/imu/data", sensor_qos)`.',
-    ],
-    tests: [
-      {
-        id: 't1',
-        description: 'Calls super().__init__ with node name imu_watchdog_node',
-        checkType: 'regex',
-        patterns: ['super\\(\\)\\.__init__\\([\'\"]imu_watchdog_node[\'\"]\\)'],
-      },
-      {
-        id: 't2',
-        description: 'Configures BEST_EFFORT and VOLATILE QoS (or qos_profile_sensor_data)',
-        checkType: 'includes-any',
-        patterns: ['BEST_EFFORT', 'qos_profile_sensor_data'],
-      },
-      {
-        id: 't3',
-        description: 'Creates publisher on /imu/data with Imu message',
-        checkType: 'regex',
-        patterns: ['create_publisher\\(\\s*Imu\\s*,\\s*[\'\"]/imu/data[\'\"]'],
-      },
-      {
-        id: 't4',
-        description: 'Creates 0.5s timer bound to watchdog_cb',
-        checkType: 'regex',
-        patterns: ['create_timer\\(\\s*0\\.5\\s*,\\s*self\\.watchdog_cb'],
-      },
-    ],
-  },
-  {
-    id: 'lab_reentrant_executor',
-    unitId: 'unit_1',
-    title: 'Deadlock-Free Callback Groups & MultiThreadedExecutor',
-    difficulty: 'Advanced',
     estimatedMinutes: 12,
-    xpReward: 80,
-    language: 'python',
+    xpReward: 70,
+    language: 'cpp',
+    roboticsContext:
+      'Real robots must stop immediately if a sensor stalls. You will subscribe to a high-rate LiDAR scan using SensorDataQoS and publish zero-velocity Twist commands if no scan arrives within 500 ms.',
     brief:
-      'A classic ROS 2 production bug: a timer callback calls a service synchronously (or awaits a future) while sharing the default MutuallyExclusiveCallbackGroup, deadlocking the executor! Fix the node using ReentrantCallbackGroup and MultiThreadedExecutor.',
+      'Implement an idiomatic C++ `rclcpp::Node` subclass (`LidarWatchdogNode`) that subscribes to `/scan` with `rclcpp::SensorDataQoS()`, publishes `/cmd_vel` (`geometry_msgs::msg::Twist`), and runs a 100 ms `create_wall_timer` watchdog.',
     requirements: [
-      'Import `ReentrantCallbackGroup` from `rclpy.callback_groups` and `MultiThreadedExecutor` from `rclpy.executors`',
-      'Assign `self.cb_group = ReentrantCallbackGroup()` to both the service client and the timer',
-      'Spin the node using `MultiThreadedExecutor(num_threads=2)` or higher',
+      'Subclass `rclcpp::Node` with node name `"lidar_watchdog"`',
+      'Subscribe to `"/scan"` (`sensor_msgs::msg::LaserScan`) using `rclcpp::SensorDataQoS()`',
+      'Create a publisher on `"/cmd_vel"` (`geometry_msgs::msg::Twist`)',
+      'Use `this->create_wall_timer(100ms, ...)` and `this->now()` to detect > 0.5s stale scans and publish zero `Twist`',
     ],
-    starterCode: `import rclpy
-from rclpy.node import Node
-from std_srvs.srv import Trigger
-# TODO: Import ReentrantCallbackGroup and MultiThreadedExecutor
+    starterCode: `#include <chrono>
+#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 
-class SafeServiceCaller(Node):
-    def __init__(self):
-        super().__init__('safe_service_caller')
-        # TODO: Create a ReentrantCallbackGroup
-        self.cb_group = None
+using namespace std::chrono_literals;
 
-        # TODO: Pass callback_group=self.cb_group to create_client & create_timer
-        self.cli = self.create_client(Trigger, '/calibrate_lidar')
-        self.timer = self.create_timer(2.0, self.timer_cb)
+class LidarWatchdogNode : public rclcpp::Node {
+public:
+  LidarWatchdogNode() : Node("lidar_watchdog"), last_scan_time_(this->now()) {
+    // TODO: Create publisher on "/cmd_vel" (geometry_msgs::msg::Twist, queue 10)
 
-    def timer_cb(self):
-        if not self.cli.service_is_ready():
-            return
-        req = Trigger.Request()
-        future = self.cli.call_async(req)
-        # In a ReentrantCallbackGroup + MultiThreadedExecutor, waiting won't starve the response!
+    // TODO: Subscribe to "/scan" using rclcpp::SensorDataQoS()
 
-def main():
-    rclpy.init()
-    node = SafeServiceCaller()
-    # TODO: Use MultiThreadedExecutor to spin the node
-    rclpy.spin(node)
-    rclpy.shutdown()
+    // TODO: Create 100ms wall timer calling watchdog_cb()
+  }
+
+private:
+  void on_scan(sensor_msgs::msg::LaserScan::ConstSharedPtr /*msg*/) {
+    last_scan_time_ = this->now();
+  }
+
+  void watchdog_cb() {
+    auto elapsed = (this->now() - last_scan_time_).seconds();
+    if (elapsed > 0.5) {
+      geometry_msgs::msg::Twist stop_msg;
+      // TODO: Publish zero Twist & log throttled warning
+    }
+  }
+
+  rclcpp::Time last_scan_time_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+  rclcpp::TimerBase::SharedPtr timer_;
+};
 `,
-    solutionCode: `import rclpy
-from rclpy.node import Node
-from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
-from std_srvs.srv import Trigger
+    solutionCode: `#include <chrono>
+#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 
-class SafeServiceCaller(Node):
-    def __init__(self):
-        super().__init__('safe_service_caller')
-        self.cb_group = ReentrantCallbackGroup()
+using namespace std::chrono_literals;
 
-        self.cli = self.create_client(
-            Trigger, '/calibrate_lidar', callback_group=self.cb_group
-        )
-        self.timer = self.create_timer(
-            2.0, self.timer_cb, callback_group=self.cb_group
-        )
+class LidarWatchdogNode : public rclcpp::Node {
+public:
+  LidarWatchdogNode() : Node("lidar_watchdog"), last_scan_time_(this->now()) {
+    cmd_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
 
-    def timer_cb(self):
-        if not self.cli.service_is_ready():
-            return
-        req = Trigger.Request()
-        future = self.cli.call_async(req)
+    scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+      "/scan",
+      rclcpp::SensorDataQoS(),
+      std::bind(&LidarWatchdogNode::on_scan, this, std::placeholders::_1));
 
-def main():
-    rclpy.init()
-    node = SafeServiceCaller()
-    executor = MultiThreadedExecutor(num_threads=2)
-    executor.add_node(node)
-    try:
-        executor.spin()
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    timer_ = this->create_wall_timer(
+      100ms, std::bind(&LidarWatchdogNode::watchdog_cb, this));
+  }
+
+private:
+  void on_scan(sensor_msgs::msg::LaserScan::ConstSharedPtr /*msg*/) {
+    last_scan_time_ = this->now();
+  }
+
+  void watchdog_cb() {
+    auto elapsed = (this->now() - last_scan_time_).seconds();
+    if (elapsed > 0.5) {
+      geometry_msgs::msg::Twist stop_msg;
+      cmd_pub_->publish(stop_msg);
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+        "LiDAR stale for %.2fs — commanding E-stop", elapsed);
+    }
+  }
+
+  rclcpp::Time last_scan_time_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+  rclcpp::TimerBase::SharedPtr timer_;
+};
 `,
     hints: [
-      'A `SingleThreadedExecutor` ignores `ReentrantCallbackGroup` parallelism — you MUST pair it with `MultiThreadedExecutor`.',
-      'Even better in production: use `future.add_done_callback(...)` instead of blocking inside `timer_cb`, or use `ReentrantCallbackGroup` when awaiting.',
+      'Use `this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);`',
+      'Pass `rclcpp::SensorDataQoS()` as the second argument to `create_subscription<sensor_msgs::msg::LaserScan>` so it matches real Best-Effort LiDAR drivers.',
     ],
     tests: [
       {
         id: 't1',
-        description: 'Imports ReentrantCallbackGroup',
-        checkType: 'includes-all',
-        patterns: ['ReentrantCallbackGroup'],
+        description: 'Creates Twist publisher on /cmd_vel',
+        checkType: 'regex',
+        patterns: ['create_publisher<geometry_msgs::msg::Twist>\\(\\s*"/cmd_vel"'],
       },
       {
         id: 't2',
-        description: 'Assigns callback_group to both create_client and create_timer',
-        checkType: 'regex',
-        patterns: ['create_client\\([^)]*callback_group', 'create_timer\\([^)]*callback_group'],
+        description: 'Subscribes to /scan with rclcpp::SensorDataQoS()',
+        checkType: 'includes-all',
+        patterns: ['create_subscription<sensor_msgs::msg::LaserScan>', '"/scan"', 'SensorDataQoS()'],
       },
       {
         id: 't3',
-        description: 'Spins with MultiThreadedExecutor',
+        description: 'Creates 100ms wall timer and publishes stop_msg',
         checkType: 'includes-all',
-        patterns: ['MultiThreadedExecutor', 'add_node', '.spin()'],
+        patterns: ['create_wall_timer', '100ms', 'publish(stop_msg)'],
       },
     ],
   },
   {
-    id: 'lab_lifecycle_node',
-    unitId: 'unit_2',
-    title: 'Managed Lifecycle Node (on_configure / on_activate)',
+    id: 'lab_cpp_executor_deadlock',
+    unitId: 'unit_1',
+    title: 'Fix C++ MultiThreadedExecutor & Reentrant CallbackGroup',
     difficulty: 'Advanced',
     estimatedMinutes: 12,
     xpReward: 85,
-    language: 'python',
+    language: 'cpp',
+    roboticsContext:
+      'Concurrency in ROS 2 C++ requires pairing CallbackGroups with a MultiThreadedExecutor. Without both, concurrent callbacks silently serialize and deadlock.',
     brief:
-      'Implement a ROS 2 LifecycleNode for a motor driver. Hardware resources and publishers must be allocated in `on_configure`, enabled in `on_activate`, and safely torn down in `on_deactivate` / `on_cleanup`.',
+      'Fix this `rclcpp` node so its timer callback and service client run concurrently on a `MultiThreadedExecutor` using a `Reentrant` callback group.',
     requirements: [
-      'Inherit from `rclpy.lifecycle.Node` (or `LifecycleNode`) and import `TransitionCallbackReturn`',
-      'Implement `on_configure(self, state)` creating a lifecycle publisher and returning `TransitionCallbackReturn.SUCCESS`',
-      'Implement `on_activate(self, state)` calling `super().on_activate(state)`',
-      'Implement `on_deactivate(self, state)` calling `super().on_deactivate(state)`',
+      'Create `cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant)`',
+      'Pass `cb_group_` to `create_client(..., rmw_qos_profile_services_default, cb_group_)` and `create_wall_timer(..., cb_group_)`',
+      'In `main()`, instantiate `rclcpp::executors::MultiThreadedExecutor`, call `executor.add_node(node)`, and `executor.spin()`',
     ],
-    starterCode: `import rclpy
-from rclpy.lifecycle import Node as LifecycleNode
-from rclpy.lifecycle import State, TransitionCallbackReturn
-from geometry_msgs.msg import Twist
+    starterCode: `#include <chrono>
+#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
-class MotorDriverLifecycle(LifecycleNode):
-    def __init__(self):
-        super().__init__('motor_driver')
-        self.cmd_pub = None
+using namespace std::chrono_literals;
 
-    # TODO: Implement on_configure(self, state: State) -> TransitionCallbackReturn
+class ConcurrentCaller : public rclcpp::Node {
+public:
+  ConcurrentCaller() : Node("concurrent_caller") {
+    // TODO: Create Reentrant CallbackGroup
 
-    # TODO: Implement on_activate(self, state: State) -> TransitionCallbackReturn
+    // TODO: Attach cb_group_ to create_client and create_wall_timer
+    client_ = this->create_client<std_srvs::srv::Trigger>("/calibrate");
+    timer_ = this->create_wall_timer(1s, std::bind(&ConcurrentCaller::on_timer, this));
+  }
 
-    # TODO: Implement on_deactivate(self, state: State) -> TransitionCallbackReturn
+private:
+  void on_timer() {
+    if (!client_->service_is_ready()) return;
+    auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+    client_->async_send_request(req);
+  }
+
+  rclcpp::CallbackGroup::SharedPtr cb_group_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client_;
+  rclcpp::TimerBase::SharedPtr timer_;
+};
+
+int main(int argc, char** argv) {
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<ConcurrentCaller>();
+  // TODO: Replace rclcpp::spin(node) with MultiThreadedExecutor
+  rclcpp::spin(node);
+  rclcpp::shutdown();
+  return 0;
+}
 `,
-    solutionCode: `import rclpy
-from rclpy.lifecycle import Node as LifecycleNode
-from rclpy.lifecycle import State, TransitionCallbackReturn
-from geometry_msgs.msg import Twist
+    solutionCode: `#include <chrono>
+#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
-class MotorDriverLifecycle(LifecycleNode):
-    def __init__(self):
-        super().__init__('motor_driver')
-        self.cmd_pub = None
+using namespace std::chrono_literals;
 
-    def on_configure(self, state: State) -> TransitionCallbackReturn:
-        self.cmd_pub = self.create_lifecycle_publisher(Twist, '/cmd_vel_out', 10)
-        self.get_logger().info('Motor driver configured')
-        return TransitionCallbackReturn.SUCCESS
+class ConcurrentCaller : public rclcpp::Node {
+public:
+  ConcurrentCaller() : Node("concurrent_caller") {
+    cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
-    def on_activate(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info('Motor driver activated')
-        return super().on_activate(state)
+    client_ = this->create_client<std_srvs::srv::Trigger>(
+      "/calibrate", rmw_qos_profile_services_default, cb_group_);
+    timer_ = this->create_wall_timer(
+      1s, std::bind(&ConcurrentCaller::on_timer, this), cb_group_);
+  }
 
-    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info('Motor driver deactivated')
-        return super().on_deactivate(state)
+private:
+  void on_timer() {
+    if (!client_->service_is_ready()) return;
+    auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+    client_->async_send_request(req);
+  }
+
+  rclcpp::CallbackGroup::SharedPtr cb_group_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client_;
+  rclcpp::TimerBase::SharedPtr timer_;
+};
+
+int main(int argc, char** argv) {
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<ConcurrentCaller>();
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(node);
+  executor.spin();
+  rclcpp::shutdown();
+  return 0;
+}
 `,
     hints: [
-      'Use `self.create_lifecycle_publisher(...)` so messages are automatically gated when the node is not in the Active state.',
-      '`super().on_activate(state)` activates all registered lifecycle publishers and returns `TransitionCallbackReturn.SUCCESS`.',
+      '`rclcpp::CallbackGroupType::Reentrant` allows callbacks in the group to execute across worker threads simultaneously.',
+      'In `main()`, replace `rclcpp::spin(node)` with `rclcpp::executors::MultiThreadedExecutor executor; executor.add_node(node); executor.spin();`.',
     ],
     tests: [
       {
         id: 't1',
-        description: 'Defines on_configure and creates lifecycle publisher',
+        description: 'Creates a Reentrant callback group',
         checkType: 'includes-all',
-        patterns: ['def on_configure', 'create_lifecycle_publisher', 'TransitionCallbackReturn.SUCCESS'],
+        patterns: ['create_callback_group', 'CallbackGroupType::Reentrant'],
       },
       {
         id: 't2',
-        description: 'Defines on_activate and delegates to super().on_activate',
-        checkType: 'includes-all',
-        patterns: ['def on_activate', 'super().on_activate'],
+        description: 'Passes callback group to create_client and create_wall_timer',
+        checkType: 'regex',
+        patterns: ['create_client<[^>]+>\\([^)]*cb_group_', 'create_wall_timer\\([^)]*cb_group_'],
       },
       {
         id: 't3',
-        description: 'Defines on_deactivate and delegates to super().on_deactivate',
+        description: 'Spins using MultiThreadedExecutor',
         checkType: 'includes-all',
-        patterns: ['def on_deactivate', 'super().on_deactivate'],
+        patterns: ['MultiThreadedExecutor', 'add_node(node)', '.spin()'],
+      },
+    ],
+  },
+  {
+    id: 'lab_cpp_lifecycle',
+    unitId: 'unit_2',
+    title: 'C++ Managed LifecycleNode (rclcpp_lifecycle)',
+    difficulty: 'Advanced',
+    estimatedMinutes: 12,
+    xpReward: 90,
+    language: 'cpp',
+    roboticsContext:
+      'Motor drivers must never leak commands during robot boot. LifecycleNodes separate configuration (resource allocation) from activation (actuation).',
+    brief:
+      'Implement `on_configure`, `on_activate`, and `on_deactivate` on a C++ `rclcpp_lifecycle::LifecycleNode` for a differential-drive motor controller.',
+    requirements: [
+      'Implement `on_configure`: allocate `cmd_pub_` via `create_publisher<geometry_msgs::msg::Twist>` and return `CallbackReturn::SUCCESS`',
+      'Implement `on_activate`: call `LifecycleNode::on_activate(state)` (activates lifecycle publisher) and return `CallbackReturn::SUCCESS`',
+      'Implement `on_deactivate`: call `LifecycleNode::on_deactivate(state)` and return `CallbackReturn::SUCCESS`',
+    ],
+    starterCode: `#include "rclcpp_lifecycle/lifecycle_node.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+
+using CallbackReturn =
+  rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+
+class MotorDriverNode : public rclcpp_lifecycle::LifecycleNode {
+public:
+  explicit MotorDriverNode() : LifecycleNode("motor_driver") {}
+
+  // TODO: Override on_configure(const rclcpp_lifecycle::State &)
+
+  // TODO: Override on_activate(const rclcpp_lifecycle::State & state)
+
+  // TODO: Override on_deactivate(const rclcpp_lifecycle::State & state)
+
+private:
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+};
+`,
+    solutionCode: `#include "rclcpp_lifecycle/lifecycle_node.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+
+using CallbackReturn =
+  rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+
+class MotorDriverNode : public rclcpp_lifecycle::LifecycleNode {
+public:
+  explicit MotorDriverNode() : LifecycleNode("motor_driver") {}
+
+  CallbackReturn on_configure(const rclcpp_lifecycle::State &) override {
+    cmd_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/motor_cmd", 10);
+    return CallbackReturn::SUCCESS;
+  }
+
+  CallbackReturn on_activate(const rclcpp_lifecycle::State & state) override {
+    LifecycleNode::on_activate(state);
+    return CallbackReturn::SUCCESS;
+  }
+
+  CallbackReturn on_deactivate(const rclcpp_lifecycle::State & state) override {
+    LifecycleNode::on_deactivate(state);
+    return CallbackReturn::SUCCESS;
+  }
+
+private:
+  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
+};
+`,
+    hints: [
+      'Remember `override` on `on_configure`, `on_activate`, and `on_deactivate` so the compiler verifies exact signatures.',
+      'Calling `LifecycleNode::on_activate(state)` automatically activates all `LifecyclePublisher`s owned by the node.',
+    ],
+    tests: [
+      {
+        id: 't1',
+        description: 'Overrides on_configure and allocates cmd_pub_',
+        checkType: 'includes-all',
+        patterns: ['on_configure(', 'create_publisher<geometry_msgs::msg::Twist>', 'CallbackReturn::SUCCESS'],
+      },
+      {
+        id: 't2',
+        description: 'Overrides on_activate and invokes base LifecycleNode::on_activate',
+        checkType: 'includes-all',
+        patterns: ['on_activate(', 'LifecycleNode::on_activate'],
+      },
+      {
+        id: 't3',
+        description: 'Overrides on_deactivate and invokes base LifecycleNode::on_deactivate',
+        checkType: 'includes-all',
+        patterns: ['on_deactivate(', 'LifecycleNode::on_deactivate'],
       },
     ],
   },
@@ -289,10 +343,12 @@ class MotorDriverLifecycle(LifecycleNode):
     estimatedMinutes: 10,
     xpReward: 65,
     language: 'xml',
+    roboticsContext:
+      'Every physical sensor offset must be accurately captured in the URDF so TF2 and Nav2 know where laser hits sit relative to the robot wheels.',
     brief:
-      'Complete the URDF/Xacro snippet to rigidly attach a `laser_frame` link 0.18m forward (X) and 0.22m above (Z) `base_link`, with proper inertial and collision geometry for Gazebo simulation.',
+      'Complete the URDF/Xacro snippet to rigidly attach `laser_frame` 0.18 m forward (+X) and 0.22 m above (+Z) `base_link`, including collision and inertia blocks for Gazebo physics.',
     requirements: [
-      'Define `<link name="laser_frame">` with `<visual>`, `<collision>`, and `<inertial>` blocks',
+      'Add `<collision>` and `<inertial>` (`<mass value="..."/>` + `<inertia .../>`) to `<link name="laser_frame">`',
       'Define `<joint name="laser_joint" type="fixed">`',
       'Set `<parent link="base_link"/>` and `<child link="laser_frame"/>`',
       'Set `<origin xyz="0.18 0.0 0.22" rpy="0 0 0"/>`',
@@ -301,11 +357,11 @@ class MotorDriverLifecycle(LifecycleNode):
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rover">
   <link name="base_link"/>
 
-  <!-- TODO: Add laser_frame link with visual, collision, and inertial -->
   <link name="laser_frame">
     <visual>
       <geometry><cylinder radius="0.04" length="0.05"/></geometry>
     </visual>
+    <!-- TODO: Add <collision> and <inertial> blocks -->
   </link>
 
   <!-- TODO: Add fixed joint 'laser_joint' from base_link to laser_frame at xyz="0.18 0.0 0.22" -->
@@ -336,8 +392,8 @@ class MotorDriverLifecycle(LifecycleNode):
 </robot>
 `,
     hints: [
-      'Gazebo/physics engines ignore links without `<inertial>` or merge fixed-joint links; adding `<collision>` and `<inertial>` prevents silent physics bugs.',
       'In ROS REP-103: +X is forward, +Y is left, +Z is up.',
+      'Physics simulators need `<mass>` and `<inertia>` to compute rigid-body dynamics cleanly.',
     ],
     tests: [
       {
@@ -361,99 +417,117 @@ class MotorDriverLifecycle(LifecycleNode):
     ],
   },
   {
-    id: 'lab_tf2_lookup',
+    id: 'lab_cpp_tf2_listener',
     unitId: 'unit_3',
-    title: 'TF2 Transform Lookup with Extrapolation Guard',
+    title: 'C++ TF2 Transform Listener & doTransform',
     difficulty: 'Advanced',
-    estimatedMinutes: 10,
-    xpReward: 75,
-    language: 'python',
+    estimatedMinutes: 12,
+    xpReward: 85,
+    language: 'cpp',
+    roboticsContext:
+      'Transforming a detected object from camera/laser coordinates into `base_link` or `map` coordinates is one of the most frequent C++ tasks in robotics.',
     brief:
-      'Query the transform from `map` to `base_link` using `tf2_ros.Buffer` and `TransformListener`, handling `LookupException`, `ConnectivityException`, and `ExtrapolationException` cleanly.',
+      'Use `tf2_ros::Buffer` and `tf2_ros::TransformListener` in C++ to transform a `PointStamped` obstacle from `"laser_frame"` into `"base_link"`, catching `tf2::TransformException`.',
     requirements: [
-      'Instantiate `Buffer()` and `TransformListener(self.tf_buffer, self)`',
-      'Call `self.tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time())`',
-      'Catch `tf2_ros.TransformException` (or specific TF2 exceptions) so transient startup misses do not crash the node',
+      'Initialize `tf_buffer_` with `this->get_clock()` and `tf_listener_` with `*tf_buffer_`',
+      'Call `tf_buffer_->lookupTransform("base_link", "laser_frame", tf2::TimePointZero)`',
+      'Transform `pt_laser` into `pt_base` via `tf2::doTransform(pt_laser, pt_base, tf)` inside a `try / catch (const tf2::TransformException & ex)`',
     ],
-    starterCode: `import rclpy
-from rclpy.node import Node
-import tf2_ros
+    starterCode: `#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "geometry_msgs/msg/point_stamped.hpp"
 
-class PoseTracker(Node):
-    def __init__(self):
-        super().__init__('pose_tracker')
-        # TODO: Initialize tf_buffer and tf_listener
-        self.tf_buffer = None
-        self.tf_listener = None
-        self.timer = self.create_timer(0.1, self.on_timer)
+class ObstacleProjector : public rclcpp::Node {
+public:
+  ObstacleProjector() : Node("obstacle_projector") {
+    // TODO: Initialize tf_buffer_ and tf_listener_
+  }
 
-    def on_timer(self):
-        # TODO: Safely lookup transform from 'map' to 'base_link' at latest available time
-        pass
+  void project_point(const geometry_msgs::msg::PointStamped & pt_laser) {
+    // TODO: Lookup transform "base_link" <- "laser_frame" and call tf2::doTransform
+  }
+
+private:
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+};
 `,
-    solutionCode: `import rclpy
-from rclpy.node import Node
-import tf2_ros
+    solutionCode: `#include <memory>
+#include "rclcpp/rclcpp.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "geometry_msgs/msg/point_stamped.hpp"
 
-class PoseTracker(Node):
-    def __init__(self):
-        super().__init__('pose_tracker')
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.timer = self.create_timer(0.1, self.on_timer)
+class ObstacleProjector : public rclcpp::Node {
+public:
+  ObstacleProjector() : Node("obstacle_projector") {
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+  }
 
-    def on_timer(self):
-        try:
-            t = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
-                rclpy.time.Time()
-            )
-            x = t.transform.translation.x
-            y = t.transform.translation.y
-            self.get_logger().debug(f'Robot at ({x:.2f}, {y:.2f})')
-        except tf2_ros.TransformException as ex:
-            self.get_logger().warn(f'TF lookup failed: {ex}')
+  void project_point(const geometry_msgs::msg::PointStamped & pt_laser) {
+    try {
+      auto tf = tf_buffer_->lookupTransform(
+        "base_link", "laser_frame", tf2::TimePointZero);
+      geometry_msgs::msg::PointStamped pt_base;
+      tf2::doTransform(pt_laser, pt_base, tf);
+      RCLCPP_INFO(this->get_logger(), "Obstacle in base_link: (%.2f, %.2f)",
+        pt_base.point.x, pt_base.point.y);
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN(this->get_logger(), "TF lookup failed: %s", ex.what());
+    }
+  }
+
+private:
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+};
 `,
     hints: [
-      'Passing `rclpy.time.Time()` (time=0) asks TF2 for the latest available transform instead of the exact current nanosecond.',
-      'Keep `self.tf_listener` stored as an instance attribute (`self.tf_listener`) so Python garbage collection does not destroy the `/tf` subscription!',
+      'Notice the argument order of `lookupTransform(target_frame, source_frame, time)` — target (`"base_link"`) comes FIRST.',
+      'Always wrap `lookupTransform` in `try { ... } catch (const tf2::TransformException & ex)`.',
     ],
     tests: [
       {
         id: 't1',
-        description: 'Creates tf2_ros.Buffer and TransformListener',
+        description: 'Initializes tf_buffer_ and tf_listener_',
         checkType: 'includes-all',
-        patterns: ['tf2_ros.Buffer()', 'TransformListener('],
+        patterns: ['std::make_unique<tf2_ros::Buffer>', 'TransformListener'],
       },
       {
         id: 't2',
-        description: 'Calls lookup_transform for map and base_link',
+        description: 'Looks up transform from laser_frame to base_link',
         checkType: 'regex',
-        patterns: ['lookup_transform\\(\\s*[\'\"]map[\'\"]\\s*,\\s*[\'\"]base_link[\'\"]'],
+        patterns: ['lookupTransform\\(\\s*"base_link"\\s*,\\s*"laser_frame"'],
       },
       {
         id: 't3',
-        description: 'Handles TransformException gracefully',
-        checkType: 'includes-any',
-        patterns: ['TransformException', 'ExtrapolationException', 'LookupException'],
+        description: 'Calls tf2::doTransform inside TransformException try/catch',
+        checkType: 'includes-all',
+        patterns: ['tf2::doTransform', 'tf2::TransformException'],
       },
     ],
   },
   {
     id: 'lab_nav2_yaml',
     unitId: 'unit_5',
-    title: 'Nav2 Costmap & MPPI Controller Tuning (YAML)',
+    title: 'Nav2 Costmap & Inflation Layer (YAML)',
     difficulty: 'Principal',
-    estimatedMinutes: 12,
-    xpReward: 95,
+    estimatedMinutes: 10,
+    xpReward: 90,
     language: 'yaml',
+    roboticsContext:
+      'Nav2 uses Configuration Space inflation so the planner treats a 0.70 m wide robot as a point without clipping walls.',
     brief:
-      'Configure a Nav2 `local_costmap` with a rolling window, `voxel_layer` / `obstacle_layer`, and `inflation_layer` tuned for a 0.35m-radius differential-drive robot.',
+      'Configure a Nav2 `local_costmap` with a rolling window in `odom` frame, `obstacle_layer`, and `inflation_layer` tuned for a 0.35 m radius robot.',
     requirements: [
       'Set `rolling_window: true` and `global_frame: odom` on `local_costmap`',
       'Set `robot_radius: 0.35`',
-      'Include both `"obstacle_layer"` and `"inflation_layer"` in `plugins`',
+      'Include `"obstacle_layer"` and `"inflation_layer"` in `plugins`',
       'Set `inflation_radius` > `robot_radius` (e.g., `0.55`)',
     ],
     starterCode: `local_costmap:
@@ -494,7 +568,7 @@ class PoseTracker(Node):
 `,
     hints: [
       'Local costmap always uses `odom` (smooth, continuous) rather than `map` (which can jump on AMCL/SLAM loop closures).',
-      '`inflation_radius` must be strictly larger than `robot_radius` so the planner sees a gradient around obstacles.',
+      '`inflation_radius` must be strictly larger than `robot_radius`.',
     ],
     tests: [
       {
@@ -514,6 +588,174 @@ class PoseTracker(Node):
         description: 'Enables obstacle_layer and inflation_layer plugins',
         checkType: 'includes-all',
         patterns: ['obstacle_layer', 'inflation_layer', 'inflation_radius:'],
+      },
+    ],
+  },
+  {
+    id: 'lab_cpp_bt_node',
+    unitId: 'unit_5',
+    title: 'BehaviorTree.CPP Custom C++ Condition Node',
+    difficulty: 'Principal',
+    estimatedMinutes: 12,
+    xpReward: 95,
+    language: 'cpp',
+    roboticsContext:
+      'Nav2 orchestrates autonomous missions via BehaviorTree.CPP. Custom C++ BT nodes read robot telemetry from the Blackboard and gate navigation cleanly.',
+    brief:
+      'Implement a `BT::ConditionNode` (`IsBatteryHealthy`) that reads `"min_pct"` from the BT input port via `getInput`, compares against `battery_pct_`, and returns `BT::NodeStatus::SUCCESS` or `FAILURE`.',
+    requirements: [
+      'Declare `static BT::PortsList providedPorts()` returning `BT::InputPort<double>("min_pct")`',
+      'Override `BT::NodeStatus tick()`',
+      'Read `"min_pct"` with `getInput("min_pct", min_pct)` and return `BT::NodeStatus::SUCCESS` or `BT::NodeStatus::FAILURE`',
+    ],
+    starterCode: `#include "behaviortree_cpp/condition_node.h"
+
+class IsBatteryHealthy : public BT::ConditionNode {
+public:
+  IsBatteryHealthy(const std::string & name, const BT::NodeConfig & config)
+  : BT::ConditionNode(name, config) {}
+
+  // TODO: Implement static BT::PortsList providedPorts()
+
+  // TODO: Override BT::NodeStatus tick()
+
+private:
+  double battery_pct_ = 45.0;
+};
+`,
+    solutionCode: `#include "behaviortree_cpp/condition_node.h"
+
+class IsBatteryHealthy : public BT::ConditionNode {
+public:
+  IsBatteryHealthy(const std::string & name, const BT::NodeConfig & config)
+  : BT::ConditionNode(name, config) {}
+
+  static BT::PortsList providedPorts() {
+    return { BT::InputPort<double>("min_pct") };
+  }
+
+  BT::NodeStatus tick() override {
+    double min_pct = 20.0;
+    getInput("min_pct", min_pct);
+    return (battery_pct_ >= min_pct)
+      ? BT::NodeStatus::SUCCESS
+      : BT::NodeStatus::FAILURE;
+  }
+
+private:
+  double battery_pct_ = 45.0;
+};
+`,
+    hints: [
+      'BehaviorTree.CPP ports act like typed function parameters passed via XML attributes or Blackboard keys.',
+      'Condition nodes never return `RUNNING` — only `SUCCESS` or `FAILURE`.',
+    ],
+    tests: [
+      {
+        id: 't1',
+        description: 'Defines static providedPorts() with InputPort<double>("min_pct")',
+        checkType: 'includes-all',
+        patterns: ['providedPorts()', 'BT::InputPort<double>("min_pct")'],
+      },
+      {
+        id: 't2',
+        description: 'Overrides tick() and reads port via getInput',
+        checkType: 'includes-all',
+        patterns: ['BT::NodeStatus tick()', 'getInput('],
+      },
+      {
+        id: 't3',
+        description: 'Returns BT::NodeStatus::SUCCESS and FAILURE',
+        checkType: 'includes-all',
+        patterns: ['BT::NodeStatus::SUCCESS', 'BT::NodeStatus::FAILURE'],
+      },
+    ],
+  },
+  {
+    id: 'lab_py_launch_composition',
+    unitId: 'unit_2',
+    title: 'Python Launch File (.launch.py) + C++ Composable Container',
+    difficulty: 'Intermediate',
+    estimatedMinutes: 10,
+    xpReward: 70,
+    language: 'python',
+    roboticsContext:
+      'Even in C++-heavy ROS 2 stacks, bringup orchestration is almost always written in Python (`launch_ros`) to compose C++ nodes, pass YAML params, and set `use_sim_time`.',
+    brief:
+      'Write a ROS 2 Python launch file (`generate_launch_description`) that spins up a `ComposableNodeContainer` loading two C++ nodes (`camera_proc::Rectify` and `perception::ObstacleDetector`) with `use_intra_process_comms: True` for zero-copy IPC.',
+    requirements: [
+      'Define `def generate_launch_description():` returning a `LaunchDescription`',
+      'Create a `ComposableNodeContainer` (`package="rclcpp_components"`, `executable="component_container_mt"`)',
+      'Add two `ComposableNode` entries inside `composable_node_descriptions`',
+      'Enable `extra_arguments=[{"use_intra_process_comms": True}]`',
+    ],
+    starterCode: `from launch import LaunchDescription
+from launch_ros.actions import ComposableNodeContainer
+from launch_ros.descriptions import ComposableNode
+
+def generate_launch_description():
+    # TODO: Create ComposableNodeContainer named 'perception_container'
+    # using package='rclcpp_components' and executable='component_container_mt'
+    container = ComposableNodeContainer(
+        name='perception_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container_mt',
+        composable_node_descriptions=[
+            # TODO: Add ComposableNode(s) with extra_arguments=[{'use_intra_process_comms': True}]
+        ],
+    )
+    return LaunchDescription([container])
+`,
+    solutionCode: `from launch import LaunchDescription
+from launch_ros.actions import ComposableNodeContainer
+from launch_ros.descriptions import ComposableNode
+
+def generate_launch_description():
+    container = ComposableNodeContainer(
+        name='perception_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container_mt',
+        composable_node_descriptions=[
+            ComposableNode(
+                package='camera_proc',
+                plugin='camera_proc::Rectify',
+                name='rectify_node',
+                extra_arguments=[{'use_intra_process_comms': True}],
+            ),
+            ComposableNode(
+                package='perception',
+                plugin='perception::ObstacleDetector',
+                name='obstacle_detector',
+                extra_arguments=[{'use_intra_process_comms': True}],
+            ),
+        ],
+    )
+    return LaunchDescription([container])
+`,
+    hints: [
+      '`component_container_mt` is the multi-threaded C++ component container.',
+      'Pass `extra_arguments=[{"use_intra_process_comms": True}]` on each `ComposableNode` to enable zero-copy `std::unique_ptr` message passing.',
+    ],
+    tests: [
+      {
+        id: 't1',
+        description: 'Defines generate_launch_description returning LaunchDescription',
+        checkType: 'includes-all',
+        patterns: ['def generate_launch_description()', 'LaunchDescription('],
+      },
+      {
+        id: 't2',
+        description: 'Configures ComposableNodeContainer with rclcpp_components',
+        checkType: 'includes-all',
+        patterns: ['ComposableNodeContainer', 'rclcpp_components'],
+      },
+      {
+        id: 't3',
+        description: 'Loads ComposableNode with use_intra_process_comms enabled',
+        checkType: 'includes-all',
+        patterns: ['ComposableNode(', 'use_intra_process_comms'],
       },
     ],
   },

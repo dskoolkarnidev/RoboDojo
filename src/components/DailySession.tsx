@@ -19,7 +19,7 @@ import type { LessonNode, UserProgress } from '../types/curriculum';
 interface DailySessionProps {
   progress: UserProgress;
   onStartNode: (node: LessonNode) => void;
-  onOpenSim: (tab: 'qos' | 'tf2' | 'pid') => void;
+  onOpenSim: (tab: 'diffdrive' | 'qos' | 'tf2' | 'pid') => void;
   onOpenCodeLab: (labId: string) => void;
   onOpenCli: () => void;
   onLogMinutes: (mins: number) => void;
@@ -81,8 +81,9 @@ export const DailySession: React.FC<DailySessionProps> = ({
               Today&apos;s Robotics &amp; ROS 2 Session
             </h1>
             <p className="text-sm text-slate-400 max-w-xl">
-              Designed for experienced engineers: 10 minutes of systems theory, 10 minutes of
-              interactive simulation/CLI debugging, and 10 minutes of hands-on node authoring.
+              Tailored for C++ &amp; Python developers new to robotics: 10 minutes of
+              first-principles robotics + rclcpp depth, 10 minutes in the simulators/CLI, and 10
+              minutes of hands-on ROS 2 node coding.
             </p>
             <div className="pt-2 flex items-center gap-3">
               <div className="w-48 h-2.5 bg-slate-800 rounded-full overflow-hidden">

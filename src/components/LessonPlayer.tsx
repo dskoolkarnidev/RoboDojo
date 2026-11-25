@@ -11,7 +11,9 @@ import {
   Lightbulb,
   Zap,
   ArrowRight,
+  ArrowLeft,
   BookOpen,
+  Cpu,
 } from 'lucide-react';
 import type { Exercise, LessonNode } from '../types/curriculum';
 import { playSound } from '../utils/sound';
@@ -52,22 +54,23 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
   onComplete,
   onClose,
 }) => {
-  // Stage -1 = Key Takeaways Briefing; 0..N-1 = Exercises; N = Summary
-  const [step, setStep] = useState<number>(-1);
+  // Phase: 'study' (deep-dive interactive cards) -> 'quiz' (exercises) -> 'done'
+  const [phase, setPhase] = useState<'study' | 'quiz' | 'done'>('study');
+  const [studyIdx, setStudyIdx] = useState<number>(0);
+
+  const [step, setStep] = useState<number>(0);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [orderList, setOrderList] = useState<string[]>(() => {
-    const first = node.exercises[0];
-    return first?.type === 'sequence-order' ? [...first.options].reverse() : [];
-  });
+  const [orderList, setOrderList] = useState<string[]>([]);
   const [checked, setChecked] = useState<boolean>(false);
   const [isCorrect, setIsCorrect] = useState<boolean>(false);
   const [mistakes, setMistakes] = useState<number>(0);
   const [combo, setCombo] = useState<number>(0);
   const [startTime] = useState<number>(() => Date.now());
 
-  const total = node.exercises.length;
+  const totalStudy = node.deepDive?.length ?? 0;
+  const totalQuiz = node.exercises.length;
   const currentExercise: Exercise | undefined =
-    step >= 0 && step < total ? node.exercises[step] : undefined;
+    phase === 'quiz' && step >= 0 && step < totalQuiz ? node.exercises[step] : undefined;
 
   const initStep = (nextStep: number) => {
     setStep(nextStep);
@@ -76,7 +79,6 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
     setIsCorrect(false);
     const ex = node.exercises[nextStep];
     if (ex?.type === 'sequence-order') {
-      // Deterministic shuffle so it's not already in exact order
       const copy = [...ex.options];
       if (copy.length >= 2) {
         [copy[0], copy[copy.length - 1]] = [copy[copy.length - 1], copy[0]];
@@ -85,6 +87,12 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
     } else {
       setOrderList([]);
     }
+  };
+
+  const startQuiz = () => {
+    playSound('click', soundEnabled);
+    setPhase('quiz');
+    initStep(0);
   };
 
   const handleCheck = () => {
@@ -117,7 +125,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
   };
 
   const handleNext = () => {
-    if (step + 1 < total) {
+    if (step + 1 < totalQuiz) {
       initStep(step + 1);
     } else {
       playSound('complete', soundEnabled);
@@ -126,7 +134,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
         spread: 70,
         origin: { y: 0.6 },
       });
-      setStep(total);
+      setPhase('done');
     }
   };
 
@@ -144,8 +152,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
     Math.round((Date.now() - startTime) / 60000) || node.estimatedMinutes
   );
 
-  // Out of hearts guard
-  if (!seniorMode && hearts <= 0 && step < total) {
+  if (!seniorMode && hearts <= 0 && phase !== 'done') {
     return (
       <div className="fixed inset-0 z-50 bg-[#0b1120]/95 backdrop-blur-md flex items-center justify-center p-4">
         <div className="max-w-md w-full rounded-2xl bg-slate-900 border border-rose-500/40 p-6 text-center space-y-4 shadow-2xl">
@@ -153,7 +160,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
           <h2 className="text-xl font-extrabold text-white">Out of Hearts!</h2>
           <p className="text-sm text-slate-400">
             Enable <span className="text-violet-300 font-bold">Senior Mode (Unlimited Hearts)</span>{' '}
-            in the top bar if you prefer uninterrupted practice, or exit to recharge.
+            in the top bar if you prefer uninterrupted study, or exit to recharge.
           </p>
           <button
             onClick={onClose}
@@ -166,8 +173,16 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
     );
   }
 
-  const progressPct =
-    step < 0 ? 5 : step >= total ? 100 : Math.round(((step + (checked ? 1 : 0)) / total) * 100);
+  const totalSteps = Math.max(1, totalStudy + totalQuiz);
+  const completedSteps =
+    phase === 'study'
+      ? studyIdx + 1
+      : phase === 'quiz'
+      ? totalStudy + step + (checked ? 1 : 0)
+      : totalSteps;
+  const progressPct = Math.min(100, Math.round((completedSteps / totalSteps) * 100));
+
+  const currentSection = node.deepDive?.[studyIdx];
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0b1120] flex flex-col">
@@ -212,44 +227,103 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-3xl mx-auto">
-          {/* Briefing Card */}
-          {step === -1 && (
+          {/* STUDY PHASE: Deep-Dive First Principles Cards */}
+          {phase === 'study' && currentSection && (
             <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-6 shadow-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 text-xs font-bold">
-                <BookOpen className="w-4 h-4" />
-                Architecture Briefing · {node.estimatedMinutes} min
-              </div>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-white">{node.title}</h1>
-                <p className="text-slate-400 mt-1">{node.subtitle}</p>
-              </div>
-
-              <div className="space-y-3 bg-slate-950/70 rounded-xl p-5 border border-slate-800">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Core Mental Models
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 text-xs font-bold">
+                  <BookOpen className="w-4 h-4" />
+                  In-Depth Study · Card {studyIdx + 1} of {totalStudy}
                 </div>
-                {node.keyTakeaways.map((item, i) => (
-                  <div key={i} className="flex items-start gap-3 text-sm text-slate-200 leading-relaxed">
-                    <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                      {i + 1}
-                    </span>
-                    <span>{item}</span>
-                  </div>
-                ))}
+                <button
+                  onClick={startQuiz}
+                  className="text-xs font-bold text-slate-400 hover:text-cyan-300 cursor-pointer"
+                >
+                  Skip to Challenges →
+                </button>
               </div>
 
-              <button
-                onClick={() => initStep(0)}
-                className="btn-3d w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-base shadow-[0_4px_0_0_#047857] flex items-center justify-center gap-2 cursor-pointer"
-              >
-                Begin {total} Challenges
-                <ArrowRight className="w-5 h-5" />
-              </button>
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wider text-cyan-400">
+                  {node.title}
+                </div>
+                <h1 className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+                  {currentSection.title}
+                </h1>
+              </div>
+
+              <p className="text-sm sm:text-base text-slate-200 leading-relaxed">
+                {currentSection.body}
+              </p>
+
+              {currentSection.cppBridge && (
+                <div className="rounded-xl bg-violet-950/35 border border-violet-500/35 p-4 flex items-start gap-3">
+                  <Cpu className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-extrabold uppercase tracking-wider text-violet-300">
+                      C++ Systems Mental Bridge
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-200 mt-1 leading-relaxed">
+                      {currentSection.cppBridge}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {currentSection.code && (
+                <pre className="rounded-xl bg-[#070b14] border border-slate-800 p-4 overflow-x-auto text-xs sm:text-sm font-mono text-emerald-200 leading-relaxed shadow-inner">
+                  <code>{currentSection.code}</code>
+                </pre>
+              )}
+
+              {/* Key Takeaways shown on final study card */}
+              {studyIdx === totalStudy - 1 && (
+                <div className="space-y-2.5 bg-slate-950/70 rounded-xl p-4 border border-slate-800">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Summary Takeaways
+                  </div>
+                  {node.keyTakeaways.map((item, i) => (
+                    <div key={i} className="flex items-start gap-2.5 text-xs sm:text-sm text-slate-300">
+                      <span className="text-emerald-400 font-bold">▸</span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <button
+                  disabled={studyIdx === 0}
+                  onClick={() => setStudyIdx((i) => Math.max(0, i - 1))}
+                  className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-200 font-bold text-sm flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" /> Previous
+                </button>
+
+                {studyIdx + 1 < totalStudy ? (
+                  <button
+                    onClick={() => {
+                      playSound('click', soundEnabled);
+                      setStudyIdx((i) => i + 1);
+                    }}
+                    className="btn-3d px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold text-sm shadow-[0_4px_0_0_#0e7490] flex items-center gap-2 cursor-pointer"
+                  >
+                    Next Concept <ArrowRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={startQuiz}
+                    className="btn-3d px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm shadow-[0_4px_0_0_#047857] flex items-center gap-2 cursor-pointer"
+                  >
+                    Start {totalQuiz} Challenges <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
-          {/* Exercise View */}
-          {currentExercise && (
+          {/* QUIZ PHASE */}
+          {phase === 'quiz' && currentExercise && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <span
@@ -259,9 +333,17 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                 >
                   {getExerciseBadge(currentExercise.type).label}
                 </span>
-                <span className="text-xs font-mono text-slate-500">
-                  Challenge {step + 1} of {total}
-                </span>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setPhase('study')}
+                    className="text-xs font-bold text-cyan-400 hover:underline cursor-pointer"
+                  >
+                    Review Study Notes
+                  </button>
+                  <span className="text-xs font-mono text-slate-500">
+                    Challenge {step + 1} of {totalQuiz}
+                  </span>
+                </div>
               </div>
 
               <h2 className="text-xl sm:text-2xl font-bold text-white leading-snug">
@@ -274,7 +356,6 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                 </pre>
               )}
 
-              {/* Sequence Order UI */}
               {currentExercise.type === 'sequence-order' ? (
                 <div className="space-y-2.5">
                   {orderList.map((item, idx) => (
@@ -308,7 +389,6 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                   ))}
                 </div>
               ) : (
-                /* Options List */
                 <div className="space-y-3">
                   {currentExercise.options.map((opt, idx) => {
                     const isSelected = selectedOption === idx;
@@ -350,16 +430,14 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
             </div>
           )}
 
-          {/* Completion Screen */}
-          {step >= total && (
+          {/* DONE PHASE */}
+          {phase === 'done' && (
             <div className="rounded-2xl bg-slate-900 border border-emerald-500/40 p-8 text-center space-y-6 shadow-2xl">
               <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
                 <Zap className="w-9 h-9 fill-emerald-400/30" />
               </div>
               <div>
-                <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
-                  Node Cleared!
-                </h2>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-white">Node Cleared!</h2>
                 <p className="text-slate-400 mt-1">{node.title}</p>
               </div>
 
@@ -373,7 +451,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                 <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
                   <div className="text-xs text-slate-400">Accuracy</div>
                   <div className="text-xl font-extrabold text-cyan-400">
-                    {Math.max(0, Math.round(((total - mistakes) / total) * 100))}%
+                    {Math.max(0, Math.round(((totalQuiz - mistakes) / totalQuiz) * 100))}%
                   </div>
                 </div>
                 <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
@@ -400,7 +478,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
       </div>
 
       {/* Bottom Action & Explanation Footer */}
-      {currentExercise && (
+      {phase === 'quiz' && currentExercise && (
         <div
           className={`border-t px-4 py-4 transition-colors ${
             checked
@@ -461,7 +539,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({
                     : 'bg-rose-500 hover:bg-rose-400 text-white shadow-[0_4px_0_0_#be123c]'
                 }`}
               >
-                {step + 1 < total ? 'Next' : 'Finish'}
+                {step + 1 < totalQuiz ? 'Next' : 'Finish'}
               </button>
             )}
           </div>
